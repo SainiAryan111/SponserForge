@@ -1,11 +1,11 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate, get_user_model
 from django.db.models import Q
 
+from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.views import APIView
 
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -17,11 +17,13 @@ from .serializers import CampaignSerializer, CreatorMatchSerializer, CreatorProf
 
 User = get_user_model()
 
-# Load model once at startup globally
-model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+# Global SentenceTransformer model instance (Loaded once on app startup)
+embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 
-# --- 1. SIGNUP VIEW ---
+# ==========================================
+# 1. SIGNUP VIEW
+# ==========================================
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup_view(request):
@@ -63,9 +65,20 @@ def signup_view(request):
             bio = data.get('bio', '')
             niche = data.get('niche', 'tech')
 
-            # Generate initial 384-dimensional vector embedding for AI vector search matching
+            # Generate initial vector embedding
             text_to_embed = f"{niche}. {bio}".strip()
-            vector_embedding = model.encode(text_to_embed).tolist() if text_to_embed else None
+            vector_embedding = embedding_model.encode(text_to_embed).tolist() if text_to_embed else None
+
+            # Safe numeric conversion
+            try:
+                sub_count = int(data.get('subscriber_count') or 0)
+            except (ValueError, TypeError):
+                sub_count = 0
+
+            try:
+                eng_rate = float(data.get('engagement_rate') or 2.50)
+            except (ValueError, TypeError):
+                eng_rate = 2.50
 
             CreatorProfile.objects.create(
                 user=user,
@@ -73,13 +86,13 @@ def signup_view(request):
                 niche=niche,
                 primary_platform=data.get('primary_platform', 'youtube'),
                 platform_link=data.get('platform_link'),
-                subscriber_count=int(data.get('subscriber_count') or 0),
-                engagement_rate=float(data.get('engagement_rate') or 2.50),
+                subscriber_count=sub_count,
+                engagement_rate=eng_rate,
                 location=data.get('location'),
                 embedding=vector_embedding
             )
 
-        # 3. Generate real JWT access keys
+        # 3. Generate JWT access keys
         refresh = RefreshToken.for_user(user)
         
         return Response({
@@ -94,7 +107,9 @@ def signup_view(request):
         return Response({'error': f'Profile deployment failure: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- 2. LOGIN VIEW ---
+# ==========================================
+# 2. LOGIN VIEW
+# ==========================================
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
@@ -105,12 +120,11 @@ def login_view(request):
     user = authenticate(username=username, password=password)
     
     if user is not None:
-        if user.role != requested_role:
+        if requested_role and user.role != requested_role:
             return Response({
                 "error": f"Access Denied. This account is registered as a {user.role.capitalize()}, not a {requested_role.capitalize()}."
             }, status=status.HTTP_403_FORBIDDEN)
             
-        # Generate real JWT token pair
         refresh = RefreshToken.for_user(user)
 
         return Response({
@@ -124,7 +138,9 @@ def login_view(request):
     return Response({"error": "Invalid username or password."}, status=status.HTTP_401_UNAUTHORIZED)
 
 
-# --- 3. MATCH CREATORS DIRECT SEARCH ---
+# ==========================================
+# 3. MATCH CREATORS (DIRECT QUERY SEARCH)
+# ==========================================
 class MatchCreatorsView(APIView):
     def post(self, request):
         query = request.data.get('query', '')
@@ -148,7 +164,7 @@ class MatchCreatorsView(APIView):
         if max_subs is not None:
             filters &= Q(subscriber_count__lte=max_subs)
 
-        query_vector = model.encode(query).tolist()
+        query_vector = embedding_model.encode(query).tolist()
 
         results = (
             CreatorProfile.objects
@@ -164,27 +180,72 @@ class MatchCreatorsView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-# --- 4. PROTECTED CAMPAIGN CREATION ---
-class CampaignCreateView(APIView):
-    permission_classes = [IsAuthenticated]
+# ==========================================
+# 4. CAMPAIGN CREATION & LISTING
+# ==========================================
+class CampaignCreateView(generics.ListCreateAPIView):
+    serializer_class = CampaignSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        serializer = CampaignSerializer(data=request.data)
-        if serializer.is_valid():
-            description = serializer.validated_data.get('description', '')
-            title = serializer.validated_data.get('title', '')
-            
-            text_to_embed = f"{title}. {description}"
-            vector_embedding = model.encode(text_to_embed).tolist()
+    def get_queryset(self):
+        return Campaign.objects.filter(brand_user=self.request.user)
 
-            # Assign logged-in brand user cleanly from JWT authentication
-            campaign = serializer.save(brand_user=request.user, embedding=vector_embedding)
-            return Response(CampaignSerializer(campaign).data, status=status.HTTP_201_CREATED)
+    def perform_create(self, serializer):
+        title = serializer.validated_data.get('title', '')
+        description = serializer.validated_data.get('description', '')
+        niche = serializer.validated_data.get('target_niche', '')
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        text_to_embed = f"{title}. {description}. Niche: {niche}"
+        vector = embedding_model.encode(text_to_embed).tolist()
+
+        serializer.save(
+            brand_user=self.request.user,
+            embedding=vector
+        )
 
 
-# --- 5. MATCHING CREATORS FOR CAMPAIGN ---
+# ==========================================
+# 5. CAMPAIGN DETAIL, UPDATE & DELETE
+# ==========================================
+class CampaignDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Campaign.objects.all()
+    serializer_class = CampaignSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        if instance.brand_user != request.user:
+            return Response({"detail": "Not authorized to edit this campaign."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        updated_campaign = serializer.save()
+
+        title = request.data.get('title', instance.title)
+        desc = request.data.get('description', instance.description)
+        niche = request.data.get('target_niche', instance.target_niche)
+        
+        text_to_embed = f"{title}. {desc}. Niche: {niche}"
+        updated_campaign.embedding = embedding_model.encode(text_to_embed).tolist()
+        updated_campaign.save()
+
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.brand_user != request.user:
+            return Response({"detail": "Not authorized to delete this campaign."}, status=status.HTTP_403_FORBIDDEN)
+        
+        self.perform_destroy(instance)
+        return Response({"detail": "Campaign deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+
+
+# ==========================================
+# 6. MATCH CREATORS FOR A CAMPAIGN
+# ==========================================
 class MatchCreatorsForCampaignView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -216,7 +277,9 @@ class MatchCreatorsForCampaignView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- 6. MATCH CAMPAIGNS FOR CREATOR ---
+# ==========================================
+# 7. MATCH CAMPAIGNS FOR A CREATOR
+# ==========================================
 class MatchCampaignsForCreatorView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -250,18 +313,18 @@ class MatchCampaignsForCreatorView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-# --- CREATOR PROFILE ONBOARDING VIEW ---
+# ==========================================
+# 8. CREATOR PROFILE MANAGEMENT
+# ==========================================
 class CreatorProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Fetch the logged-in creator's profile."""
         profile = get_object_or_404(CreatorProfile, user=request.user)
         serializer = CreatorProfileSerializer(profile)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def put(self, request):
-        """Update creator profile and generate vector embedding automatically."""
         profile = get_object_or_404(CreatorProfile, user=request.user)
         serializer = CreatorProfileSerializer(profile, data=request.data, partial=True)
 
@@ -269,9 +332,8 @@ class CreatorProfileView(APIView):
             bio = serializer.validated_data.get('bio', profile.bio or '')
             niche = serializer.validated_data.get('niche', profile.niche or '')
 
-            # Generate 384-dimensional vector embedding for the creator
             text_to_embed = f"{niche}. {bio}"
-            vector_embedding = model.encode(text_to_embed).tolist()
+            vector_embedding = embedding_model.encode(text_to_embed).tolist()
 
             updated_profile = serializer.save(embedding=vector_embedding)
             return Response(CreatorProfileSerializer(updated_profile).data, status=status.HTTP_200_OK)

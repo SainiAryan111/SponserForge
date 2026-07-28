@@ -10,7 +10,8 @@ from .views import (
     MatchCreatorsForCampaignView,
     MatchCreatorsView,
     CampaignCreateView,
-    MatchCampaignsForCreatorView
+    MatchCampaignsForCreatorView,
+    CampaignDetailView,
 )
 
 urlpatterns = [
@@ -25,4 +26,5 @@ urlpatterns = [
     path('campaigns/', CampaignCreateView.as_view(), name='campaign_create'),
     path('campaigns/<int:campaign_id>/match/', MatchCreatorsForCampaignView.as_view(), name='campaign_match_creators'),
     path('creators/<int:creator_id>/match-campaigns/', MatchCampaignsForCreatorView.as_view(), name='creator_match_campaigns'),
+    path('campaigns/<int:pk>/', CampaignDetailView.as_view(), name='campaign-detail'),
 ]

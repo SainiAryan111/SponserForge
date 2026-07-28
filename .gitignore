@@ -1,0 +1,80 @@
+# ==========================================
+# Environments & Secret Keys (CRITICAL)
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+
+# ==========================================
+# Python / Django
+# ==========================================
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Django static & media uploads (don't commit uploaded user files/database)
+*.sqlite3
+*.db
+/media/
+/staticfiles/
+/static_root/
+
+# Database / Vector stores (if using local FAISS/Chroma for vector embeddings)
+*.index
+*.pkl
+*.bin
+
+# Django debug logs
+*.log
+
+# ==========================================
+# Node.js / React (Vite)
+# ==========================================
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+dist-isolated/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite cache
+.vite/
+
+# ==========================================
+# Editor & System Files
+# ==========================================
+# IDE / Text Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
