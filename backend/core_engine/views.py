@@ -181,14 +181,20 @@ class MatchCreatorsView(APIView):
 
 
 # ==========================================
-# 4. CAMPAIGN CREATION & LISTING
+# 4. CAMPAIGN CREATION & LISTING (UPDATED)
 # ==========================================
 class CampaignCreateView(generics.ListCreateAPIView):
     serializer_class = CampaignSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Campaign.objects.filter(brand_user=self.request.user)
+        user = self.request.user
+        # If the requester is a Brand, return only their campaigns
+        if getattr(user, 'role', '') == 'brand':
+            return Campaign.objects.filter(brand_user=user).order_by('-created_at')
+        
+        # If the requester is a Creator, return all campaigns
+        return Campaign.objects.all().order_by('-created_at')
 
     def perform_create(self, serializer):
         title = serializer.validated_data.get('title', '')
@@ -286,25 +292,38 @@ class MatchCampaignsForCreatorView(APIView):
     def get(self, request, creator_id):
         creator = get_object_or_404(CreatorProfile, id=creator_id)
 
-        if not creator.embedding:
-            return Response({"error": "Creator embedding is missing."}, status=status.HTTP_400_BAD_REQUEST)
-
+        # 1. Build initial requirement filters
         filters = Q(min_subscribers_required__lte=creator.subscriber_count)
         
         if creator.primary_platform:
             filters &= Q(target_platform__iexact=creator.primary_platform)
 
-        matched_campaigns = (
-            Campaign.objects
-            .filter(filters)
-            .annotate(distance=CosineDistance("embedding", creator.embedding))
-            .order_by("distance")[:10]
-        )
+        matched_campaigns = []
 
+        # 2. Vector search if creator has an embedding
+        if creator.embedding:
+            matched_campaigns = list(
+                Campaign.objects
+                .filter(filters)
+                .annotate(distance=CosineDistance("embedding", creator.embedding))
+                .order_by("distance")[:10]
+            )
+
+        # 3. FALLBACK: If subscriber/platform filters exclude everything
+        # or no vector matches are found, return recent active campaigns
+        if not matched_campaigns:
+            matched_campaigns = list(Campaign.objects.all().order_by('-created_at')[:10])
+
+        # 4. Serialize and attach similarity scores safely
         results = []
         for campaign in matched_campaigns:
             campaign_data = CampaignSerializer(campaign).data
-            campaign_data['similarity_score'] = round(1 - campaign.distance, 4)
+            
+            if hasattr(campaign, 'distance') and campaign.distance is not None:
+                campaign_data['similarity_score'] = round(1 - campaign.distance, 4)
+            else:
+                campaign_data['similarity_score'] = 0.50  # Default score for fallback matches
+
             results.append(campaign_data)
 
         return Response({

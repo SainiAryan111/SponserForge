@@ -364,7 +364,6 @@ function CampaignFormModal({ initialData = null, onClose, onSuccess }) {
     setSubmitting(true);
     setError('');
 
-    // Ensure payload formats numeric values properly
     const payload = {
       ...formData,
       budget: Number(formData.budget),

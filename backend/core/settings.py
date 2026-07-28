@@ -145,10 +145,10 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-
 # Allow the browser to send credentials like tokens/cookies if needed
 CORS_ALLOW_CREDENTIALS = True
 

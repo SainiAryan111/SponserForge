@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 import { UserCheck, Sparkles, Target, Briefcase, ExternalLink, CheckCircle, Edit3 } from 'lucide-react';
 
 export default function CreatorHome() {
@@ -6,35 +7,20 @@ export default function CreatorHome() {
   const [matchedCampaigns, setMatchedCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch creator profile and matched campaigns using stored JWT token
   useEffect(() => {
     const fetchDashboardData = async () => {
-      const token = localStorage.getItem('access');
-      if (!token) return;
-
       try {
         // 1. Fetch Creator Profile
-        const profileRes = await fetch('http://127.0.0.1:8000/api/creator/profile/', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const profileRes = await api.get('creator/profile/');
+        setProfile(profileRes.data);
 
-        if (profileRes.ok) {
-          const profileData = await profileRes.json();
-          setProfile(profileData);
-
-          // 2. Fetch Matched Campaigns for this creator ID
-          if (profileData.id) {
-            const campaignRes = await fetch(`http://127.0.0.1:8000/api/creator/match-campaigns/${profileData.id}/`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (campaignRes.ok) {
-              const campaignData = await campaignRes.json();
-              setMatchedCampaigns(campaignData.matched_campaigns || []);
-            }
-          }
+        // 2. Fetch Matched Campaigns for this creator ID
+        if (profileRes.data?.id) {
+          const campaignRes = await api.get(`creator/match-campaigns/${profileRes.data.id}/`);
+          setMatchedCampaigns(campaignRes.data?.matched_campaigns || []);
         }
       } catch (err) {
-        console.error('Failed to load dashboard:', err);
+        console.error('Failed to load creator dashboard:', err);
       } finally {
         setLoading(false);
       }
@@ -60,7 +46,9 @@ export default function CreatorHome() {
                   {profile?.primary_platform || 'Platform'}
                 </span>
               </div>
-              <p className="text-slate-400 text-sm mt-1">{profile?.niche || 'Niche not set'} • {profile?.subscriber_count?.toLocaleString() || 0} Followers</p>
+              <p className="text-slate-400 text-sm mt-1">
+                {profile?.niche || 'Niche not set'} • {profile?.subscriber_count?.toLocaleString() || 0} Followers
+              </p>
             </div>
           </div>
 
