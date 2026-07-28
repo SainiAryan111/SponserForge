@@ -241,7 +241,7 @@ function CreatorDashboard({ user }) {
 
   const fetchCreatorData = async () => {
     try {
-      const profileRes = await api.get('creator/profile/');
+      const profileRes = await api.get('auth/profile/');
       setProfile(profileRes.data);
 
       if (profileRes.data?.id) {

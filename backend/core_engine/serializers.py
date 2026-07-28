@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, CreatorProfile, BrandProfile, Campaign
+from .models import User, CreatorProfile, Campaign
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -41,3 +41,41 @@ class CampaignSerializer(serializers.ModelSerializer):
             'min_subscribers_required', 'created_at'
         ]
         read_only_fields = ['id', 'brand_user', 'embedding', 'created_at']
+
+# serializers.py
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from .models import BrandProfile
+
+User = get_user_model()
+
+
+class BrandProfileSerializer(serializers.ModelSerializer):
+    # Fetch from user.role instead of user.user_type
+    username = serializers.ReadOnlyField(source='user.username', default='')
+    email = serializers.ReadOnlyField(source='user.email', default='')
+    role = serializers.ReadOnlyField(source='user.role', default='brand')
+    user_type = serializers.ReadOnlyField(source='user.role', default='brand') # Alias for React components
+
+    class Meta:
+        model = BrandProfile
+        fields = [
+            'id',
+            'username',
+            'email',
+            'role',
+            'user_type',
+            'company_name',
+            'industry',
+            'website',
+            'logo_url',
+            'company_size',
+            'target_audience',
+        ]
+        read_only_fields = ['id', 'username', 'email', 'role', 'user_type']
+
+    def validate_website(self, value):
+        """Ensure website has proper URL formatting if provided."""
+        if value and not (value.startswith('http://') or value.startswith('https://')):
+            return f"https://{value}"
+        return value

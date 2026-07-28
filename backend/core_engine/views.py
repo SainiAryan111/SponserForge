@@ -333,28 +333,90 @@ class MatchCampaignsForCreatorView(APIView):
 
 
 # ==========================================
-# 8. CREATOR PROFILE MANAGEMENT
+# 8. USER PROFILE MANAGEMENT
 # ==========================================
-class CreatorProfileView(APIView):
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from .models import CreatorProfile, BrandProfile
+from .serializers import CreatorProfileSerializer, BrandProfileSerializer
+
+class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        profile = get_object_or_404(CreatorProfile, user=request.user)
-        serializer = CreatorProfileSerializer(profile)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        user = request.user
+        data = {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+        }
+
+        # Dynamically attach role-specific profile data
+        if user.role == 'creator':
+            profile = get_object_or_404(CreatorProfile, user=user)
+            profile_data = CreatorProfileSerializer(profile).data
+            data.update(profile_data)
+        elif user.role == 'brand':
+            profile = get_object_or_404(BrandProfile, user=user)
+            profile_data = BrandProfileSerializer(profile).data
+            data.update(profile_data)
+
+        return Response(data, status=status.HTTP_200_OK)
 
     def put(self, request):
-        profile = get_object_or_404(CreatorProfile, user=request.user)
-        serializer = CreatorProfileSerializer(profile, data=request.data, partial=True)
+        user = request.user
 
-        if serializer.is_valid():
-            bio = serializer.validated_data.get('bio', profile.bio or '')
-            niche = serializer.validated_data.get('niche', profile.niche or '')
+        if user.role == 'creator':
+            profile = get_object_or_404(CreatorProfile, user=user)
+            serializer = CreatorProfileSerializer(profile, data=request.data, partial=True)
 
-            text_to_embed = f"{niche}. {bio}"
-            vector_embedding = embedding_model.encode(text_to_embed).tolist()
+            if serializer.is_valid():
+                bio = serializer.validated_data.get('bio', profile.bio or '')
+                niche = serializer.validated_data.get('niche', profile.niche or '')
 
-            updated_profile = serializer.save(embedding=vector_embedding)
-            return Response(CreatorProfileSerializer(updated_profile).data, status=status.HTTP_200_OK)
+                # Re-generate vector embedding if bio/niche updated
+                text_to_embed = f"{niche}. {bio}"
+                if hasattr(embedding_model, 'encode'):
+                    vector_embedding = embedding_model.encode(text_to_embed).tolist()
+                    updated_profile = serializer.save(embedding=vector_embedding)
+                else:
+                    updated_profile = serializer.save()
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                response_data = serializer.data
+                response_data.update({"username": user.username, "email": user.email, "role": user.role})
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        elif user.role == 'brand':
+            profile = get_object_or_404(BrandProfile, user=user)
+            serializer = BrandProfileSerializer(profile, data=request.data, partial=True)
+
+            if serializer.is_valid():
+                updated_profile = serializer.save()
+                response_data = serializer.data
+                response_data.update({"username": user.username, "email": user.email, "role": user.role})
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"error": "Unsupported user role"}, status=status.HTTP_400_BAD_REQUEST)
+
+# views.py
+from rest_framework import generics, permissions
+from .models import BrandProfile
+from .serializers import BrandProfileSerializer
+
+
+class ProfileDetailView(generics.RetrieveUpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = BrandProfileSerializer
+
+    def get_object(self):
+        # Fetch or auto-create the BrandProfile for the logged-in user
+        profile, _ = BrandProfile.objects.get_or_create(user=self.request.user)
+        return profile

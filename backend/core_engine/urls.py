@@ -4,7 +4,7 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from .views import (
-    CreatorProfileView,
+    UserProfileView,
     signup_view,
     login_view,
     MatchCreatorsForCampaignView,
@@ -19,8 +19,7 @@ urlpatterns = [
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/signup/', signup_view, name='api_signup'),
     path('auth/login/', login_view, name='api_login'),
-
-    path('creator/profile/', CreatorProfileView.as_view(), name='creator_profile'),
+    path('auth/profile/', UserProfileView.as_view(), name='profile'),
 
     path('match-creators/', MatchCreatorsView.as_view(), name='match_creators'),
     path('campaigns/', CampaignCreateView.as_view(), name='campaign_create'),

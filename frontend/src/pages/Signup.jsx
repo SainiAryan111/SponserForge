@@ -39,39 +39,61 @@ export default function Signup() {
     setError('');
     setLoading(true);
 
-    // Build payload matching Django views / serializers
+    // Parse numeric values safely
+    const parsedSubscribers = subscriberCount === '' ? 0 : parseInt(subscriberCount, 10);
+    const parsedEngagement = engagementRate === '' ? null : parseFloat(engagementRate);
+
+    const rolePayload = role === 'brand' 
+      ? {
+          company_name: companyName.trim(),
+          industry: industry.trim(),
+          website: website.trim() || null,
+          company_size: companySize,
+          target_audience: targetAudience.trim()
+        } 
+      : {
+          bio: bio.trim(),
+          niche,
+          primary_platform: primaryPlatform,
+          platform_link: platformLink.trim() || null,
+          subscriber_count: isNaN(parsedSubscribers) ? 0 : parsedSubscribers,
+          engagement_rate: isNaN(parsedEngagement) ? null : parsedEngagement,
+          location: location.trim()
+        };
+
     const payload = {
-      username,
-      email,
+      username: username.trim(),
+      email: email.trim(),
       password,
       role,
-      ...(role === 'brand' ? {
-        company_name: companyName,
-        industry,
-        website: website || null,
-        company_size: companySize,
-        target_audience: targetAudience
-      } : {
-        bio,
-        niche,
-        primary_platform: primaryPlatform,
-        platform_link: platformLink || null,
-        subscriber_count: parseInt(subscriberCount, 10) || 0,
-        engagement_rate: parseFloat(engagementRate) || 2.50,
-        location
-      })
+      ...rolePayload
     };
 
     try {
       await api.post('auth/signup/', payload);
-      await login(username, password, role);
+      // Ensure login parameter list matches AuthContext implementation
+      await login(username, password); 
       navigate('/dashboard');
     } catch (err) {
       console.error('Signup error:', err);
-      const errMsg = 
-        err.response?.data?.error || 
-        err.response?.data?.detail || 
-        'Registration failed. Please check your inputs and try again.';
+      // Parse DRF validation object errors (e.g., { username: ["This field is required."] })
+      const data = err.response?.data;
+      let errMsg = 'Registration failed. Please check your inputs and try again.';
+
+      if (typeof data === 'string') {
+        errMsg = data;
+      } else if (data?.error) {
+        errMsg = data.error;
+      } else if (data?.detail) {
+        errMsg = data.detail;
+      } else if (data && typeof data === 'object') {
+        // Extract first field error from Django Rest Framework serializer error response
+        const firstKey = Object.keys(data)[0];
+        if (firstKey && Array.isArray(data[firstKey])) {
+          errMsg = `${firstKey}: ${data[firstKey][0]}`;
+        }
+      }
+
       setError(errMsg);
     } finally {
       setLoading(false);

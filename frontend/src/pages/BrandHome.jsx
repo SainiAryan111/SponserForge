@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Search, PlusCircle, Users, Sparkles, Building2, TrendingUp, Filter } from 'lucide-react';
+import React, { useState } from 'react';
+import api from '../services/api';
+import { Search, PlusCircle, Users, Sparkles, Building2 } from 'lucide-react';
 
 export default function BrandHome() {
   const [query, setQuery] = useState('');
@@ -11,28 +12,21 @@ export default function BrandHome() {
     min_subscribers: 0,
   });
 
-  // Example search function calling your MatchCreatorsView
   const handleSearch = async (e) => {
     if (e) e.preventDefault();
-    if (!query) return;
+    if (!query.trim()) return;
 
     setLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/match-creators/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          platform: filters.platform || null,
-          niche: filters.niche || null,
-          min_subscribers: parseInt(filters.min_subscribers) || 0,
-        }),
+      // Using configured axios instance to include Bearer token automatically
+      const response = await api.post('match-creators/', {
+        query,
+        platform: filters.platform || null,
+        niche: filters.niche || null,
+        min_subscribers: parseInt(filters.min_subscribers, 10) || 0,
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setCreators(data);
-      }
+      setCreators(response.data);
     } catch (err) {
       console.error('Error matching creators:', err);
     } finally {
@@ -145,7 +139,7 @@ export default function BrandHome() {
                           {creator.primary_platform}
                         </span>
                       </div>
-                      {creator.similarity_score && (
+                      {creator.similarity_score !== undefined && (
                         <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs px-2 py-1 rounded-lg font-mono">
                           {(creator.similarity_score * 100).toFixed(0)}% match
                         </div>
@@ -158,7 +152,7 @@ export default function BrandHome() {
                   <div className="border-t border-slate-800/80 pt-4 mt-2 flex items-center justify-between text-xs text-slate-400">
                     <div>
                       <span className="block font-semibold text-slate-200 text-sm">
-                        {Number(creator.subscriber_count).toLocaleString()}
+                        {Number(creator.subscriber_count || 0).toLocaleString()}
                       </span>
                       <span>Subscribers</span>
                     </div>
