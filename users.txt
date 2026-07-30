@@ -1,3 +1,18 @@
+# Demo Brand Profile
+
+1)
+nexus_tech
+BrandPass2026!
+
+2)
+lumina_tech
+DemoPassword123!
+
+3)
+orange_tech
+DemoPassword123!
+
+
 # Demo Creator Profile
 
 1)
@@ -8,14 +23,6 @@ CreatorPass2026!
 alex_creates
 DemoPassword123!
 
-# Demo Creator Profile
-
-1)
-nexus_tech
-BrandPass2026!
-
-2)
-lumina_tech
+3)
+techy_boy 
 DemoPassword123!
-
-

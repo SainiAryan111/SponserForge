@@ -135,7 +135,7 @@ def populate_database():
             brand_user=brand_user,
             title=title,
             description=desc,
-            budget=budget,
+            points_reward=budget,
             target_platform=platform,
             target_niche=niche,
             min_subscribers_required=min_subs,

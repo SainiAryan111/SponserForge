@@ -10,23 +10,39 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     const storedUser = localStorage.getItem('user_data');
-    if (token && storedUser) {
-      setUser(JSON.parse(storedUser));
+
+    if (token) {
+      if (storedUser) {
+        setUser(JSON.parse(storedUser));
+      }
+      
+      // Keep user state fresh from backend
+      api.get('auth/profile/')
+        .then((res) => {
+          setUser(res.data);
+          localStorage.setItem('user_data', JSON.stringify(res.data));
+        })
+        .catch((err) => {
+          console.warn('Could not refresh profile on mount:', err);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
-  // Pass role along with username and password
   const login = async (username, password, role) => {
     const response = await api.post('auth/login/', { username, password, role });
-    const { access, refresh, role: userRole } = response.data;
+    const { access, refresh } = response.data;
 
     localStorage.setItem('access_token', access);
     localStorage.setItem('refresh_token', refresh);
     
-    const userData = { username, role: userRole };
-    localStorage.setItem('user_data', JSON.stringify(userData));
-    setUser(userData);
+    // Extract user profile returned from login endpoint
+    const userPayload = response.data.user || response.data;
+    localStorage.setItem('user_data', JSON.stringify(userPayload));
+    setUser(userPayload);
+    
     return response.data;
   };
 
@@ -38,7 +54,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, setUser, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

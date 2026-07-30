@@ -23,7 +23,7 @@ export default function WelcomePage() {
       </p>
 
       {/* Primary CTA Buttons */}
-      <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-md">
+      <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4 w-full max-w-xl">
         <Link
           to="/signup"
           className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-lg shadow-indigo-600/30 transition-all duration-200 flex items-center justify-center space-x-2"
@@ -32,8 +32,15 @@ export default function WelcomePage() {
           <ArrowRight className="w-4 h-4" />
         </Link>
         <Link
+          to="/deck"
+          className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-750 border border-slate-700 text-indigo-400 font-semibold transition-all duration-200 flex items-center justify-center space-x-2"
+        >
+          <span>View Startup Deck</span>
+          <Sparkles className="w-4 h-4 text-indigo-400" />
+        </Link>
+        <Link
           to="/login"
-          className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold transition-all duration-200"
+          className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-semibold transition-all duration-200"
         >
           Sign In
         </Link>

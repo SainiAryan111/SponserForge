@@ -2,9 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from pgvector.django import VectorField, HnswIndex
 
-# ==========================================
-# 1. CORE USER MODEL
-# ==========================================
+
 class User(AbstractUser):
     ROLE_CHOICES = (
         ('brand', 'Brand Entity'),
@@ -16,9 +14,6 @@ class User(AbstractUser):
         return f"{self.username} ({self.get_role_display()})"
 
 
-# ==========================================
-# 2. CREATOR PROFILE
-# ==========================================
 class CreatorProfile(models.Model):
     NICHE_CHOICES = (
         ('tech', 'Technology & AI'),
@@ -42,9 +37,10 @@ class CreatorProfile(models.Model):
     primary_platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='youtube')
     platform_link = models.URLField(blank=True, null=True)
     subscriber_count = models.IntegerField(default=0)
-    engagement_rate = models.DecimalField(max_digits=4, decimal_places=2, default=2.50)  # e.g., 4.50%
+    engagement_rate = models.DecimalField(max_digits=4, decimal_places=2, default=2.50)
     avatar_url = models.URLField(blank=True, null=True)
     location = models.CharField(max_length=100, blank=True, null=True)
+    points_balance = models.PositiveIntegerField(default=0)
 
     embedding = VectorField(dimensions=384, null=True, blank=True)
 
@@ -55,17 +51,14 @@ class CreatorProfile(models.Model):
                 fields=['embedding'],
                 m=16,
                 ef_construction=64,
-                opclasses=['vector_cosine_ops']  # Fast Cosine Similarity
+                opclasses=['vector_cosine_ops']
             )
         ]
 
     def __str__(self):
-        return f"Creator: {self.user.username}"
+        return f"Creator: {self.user.username} ({self.points_balance} pts)"
 
 
-# ==========================================
-# 3. BRAND PROFILE
-# ==========================================
 class BrandProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='brand_profile')
     company_name = models.CharField(max_length=255, blank=True)
@@ -74,26 +67,30 @@ class BrandProfile(models.Model):
     logo_url = models.URLField(blank=True, null=True)
     company_size = models.CharField(max_length=50, blank=True, null=True)
     target_audience = models.CharField(max_length=255, blank=True, null=True)
+    points_balance = models.PositiveIntegerField(default=1000)
 
     def __str__(self):
-        return f"Brand: {self.company_name or self.user.username}"
+        return f"Brand: {self.company_name or self.user.username} ({self.points_balance} pts)"
 
 
-# ==========================================
-# 4. CAMPAIGN
-# ==========================================
 class Campaign(models.Model):
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    )
     brand_user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='campaigns')
     title = models.CharField(max_length=200)
-    description = models.TextField()  # Converts into vector embedding
-    budget = models.DecimalField(max_digits=10, decimal_places=2)  # FIXED FIELD TYPE
+    description = models.TextField()
+    points_reward = models.PositiveIntegerField(default=0, help_text="Points awarded to creator upon completion")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    created_at = models.DateTimeField(auto_now_add=True)
     target_platform = models.CharField(max_length=20, default='youtube')
     target_niche = models.CharField(max_length=50, default='tech')
     min_subscribers_required = models.IntegerField(default=0)
+    creators_needed = models.IntegerField(default=1)
     
-    # 384-dimensional vector field for the campaign description
     embedding = VectorField(dimensions=384, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
@@ -107,19 +104,46 @@ class Campaign(models.Model):
         ]
 
     def __str__(self):
-        return f"Campaign: {self.title} ({self.brand_user.username})"
+        return f"Campaign: {self.title} ({self.brand_user.username} - {self.points_reward} pts)"
 
 
-# ==========================================
-# 4. CAMPAIGN BRIEF (Legacy Alias)
-# ==========================================
-class CampaignBrief(models.Model):
-    brand = models.ForeignKey(BrandProfile, on_delete=models.CASCADE, related_name='campaigns_brief')
-    title = models.CharField(max_length=255)
-    description = models.TextField()
-    budget = models.DecimalField(max_digits=10, decimal_places=2)
-    required_niche = models.CharField(max_length=50, default='tech')
-    created_at = models.DateTimeField(auto_now_add=True)
+class CampaignApplication(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('accepted', 'Accepted / Hired'),
+        ('rejected', 'Rejected'),
+        ('submitted', 'Work Submitted'),
+        ('completed', 'Completed & Paid'),
+    )
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name='applications')
+    creator = models.ForeignKey(CreatorProfile, on_delete=models.CASCADE, related_name='applications')
+    pitch = models.TextField(blank=True, help_text="Why the creator is a good fit")
+    submission_link = models.URLField(blank=True, null=True, help_text="Link to deliverable/content")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    applied_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('campaign', 'creator')
 
     def __str__(self):
-        return self.title
+        return f"{self.creator.user.username} -> {self.campaign.title} [{self.status}]"
+
+
+class PointsTransaction(models.Model):
+    TRANSACTION_TYPES = (
+        ('campaign_payout', 'Campaign Payout'),
+        ('admin_grant', 'Admin Grant'),
+        ('top_up', 'Brand Top-Up'),
+    )
+
+    brand = models.ForeignKey(BrandProfile, on_delete=models.SET_NULL, null=True, blank=True)
+    creator = models.ForeignKey(CreatorProfile, on_delete=models.SET_NULL, null=True, blank=True)
+    campaign = models.ForeignKey(Campaign, on_delete=models.SET_NULL, null=True, blank=True)
+    amount = models.PositiveIntegerField()
+    transaction_type = models.CharField(max_length=30, choices=TRANSACTION_TYPES)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.amount} pts from Brand({self.brand}) to Creator({self.creator})"
