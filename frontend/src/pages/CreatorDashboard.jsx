@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { getUserProfile, getCampaignsForCreator, getApplications, applyToCampaign } from '../services/api';
 import ApplicationActionCard from '../components/ApplicationActionCard';
 
@@ -59,20 +60,25 @@ export default function CreatorDashboard() {
   return (
     <div className="dashboard-container">
       {/* HEADER & EARNINGS */}
-      <header className="dashboard-header">
+      <header className="dashboard-header flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1>Welcome, @{profile?.username}</h1>
           <p className="subtitle">{profile?.niche?.toUpperCase()} Creator • {profile?.primary_platform}</p>
         </div>
-        <div className="balance-badge">
-          <span>Earned Points</span>
-          <strong>{profile?.points_balance ?? 0} pts</strong>
+        <div className="flex items-center space-x-3">
+          <Link to="/search" className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-4 py-2.5 rounded-xl transition flex items-center space-x-1.5 shadow-md shadow-indigo-600/20">
+            <span>🔍 Explore Brands & Creators</span>
+          </Link>
+          <div className="balance-badge">
+            <span>Earned Points</span>
+            <strong>{profile?.points_balance ?? 0} pts</strong>
+          </div>
         </div>
       </header>
 
       {/* AI MATCHED CAMPAIGNS FEED */}
       <section className="dashboard-section">
-        <h2>Recommended Campaigns (Vector Match)</h2>
+        <h2>Recommended Campaigns (Smart Match)</h2>
         <div className="campaign-grid">
           {matchedCampaigns.length === 0 ? (
             <p className="empty-state">No matching campaigns found at this moment.</p>
@@ -103,17 +109,19 @@ export default function CreatorDashboard() {
       <section className="dashboard-section">
         <h2>My Applications & Active Deliverables</h2>
         <div className="applications-list">
-          {myApplications.length === 0 ? (
-            <p className="empty-state">You haven't applied to any campaigns yet.</p>
+          {myApplications.filter(app => app.status !== 'completed' && app.status !== 'rejected').length === 0 ? (
+            <p className="empty-state">No active applications or deliverables at this moment.</p>
           ) : (
-            myApplications.map((app) => (
-              <ApplicationActionCard
-                key={app.id}
-                application={app}
-                userRole="creator"
-                onUpdate={fetchData}
-              />
-            ))
+            myApplications
+              .filter(app => app.status !== 'completed' && app.status !== 'rejected')
+              .map((app) => (
+                <ApplicationActionCard
+                  key={app.id}
+                  application={app}
+                  userRole="creator"
+                  onUpdate={fetchData}
+                />
+              ))
           )}
         </div>
       </section>

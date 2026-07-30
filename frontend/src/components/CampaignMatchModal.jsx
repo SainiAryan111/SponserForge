@@ -37,7 +37,7 @@ export default function CampaignMatchModal({ campaign, onClose }) {
           <div>
             <div className="flex items-center space-x-2 text-indigo-400 text-sm font-semibold mb-1">
               <Sparkles className="w-4 h-4" />
-              <span>k-NN Vector Similarity Matching</span>
+              <span>Smart AI Creator Matching</span>
             </div>
             <h2 className="text-xl font-bold text-white">{campaign.title}</h2>
           </div>
@@ -54,7 +54,7 @@ export default function CampaignMatchModal({ campaign, onClose }) {
           {loading ? (
             <div className="text-center py-12">
               <Sparkles className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-3" />
-              <p className="text-slate-400 text-sm">Searching vector space for best creator matches...</p>
+              <p className="text-slate-400 text-sm">Finding best creator matches...</p>
             </div>
           ) : error ? (
             <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-4 rounded-xl text-center">

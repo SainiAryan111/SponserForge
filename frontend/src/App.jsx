@@ -8,6 +8,9 @@ import Signup from './pages/Signup.jsx';
 import BrandDashboard from './pages/BrandDashboard.jsx';
 import CreatorDashboard from './pages/CreatorDashboard.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
+import CreateCampaignPage from './pages/CreateCampaignPage.jsx';
+import HistoryPage from './pages/HistoryPage.jsx';
+import SearchUsersPage from './pages/SearchUsersPage.jsx';
 import Footer from './components/Footer.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Navbar from './components/Navbar.jsx';
@@ -113,6 +116,36 @@ function App() {
               element={
                 <ProtectedRoute allowedRole="creator">
                   <CreatorDashboard />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Create Campaign Page */}
+            <Route
+              path="/campaign/create"
+              element={
+                <ProtectedRoute allowedRole="brand">
+                  <CreateCampaignPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* History Page */}
+            <Route
+              path="/history"
+              element={
+                <ProtectedRoute>
+                  <HistoryPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Search Users Directory */}
+            <Route
+              path="/search"
+              element={
+                <ProtectedRoute>
+                  <SearchUsersPage />
                 </ProtectedRoute>
               }
             />

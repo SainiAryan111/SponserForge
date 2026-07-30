@@ -32,9 +32,10 @@ class CreatorProfile(models.Model):
     )
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='creator_profile')
+    name = models.CharField(max_length=100, blank=True, null=True)
     bio = models.TextField(blank=True, null=True)
-    niche = models.CharField(max_length=50, choices=NICHE_CHOICES, default='tech')
-    primary_platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, default='youtube')
+    niche = models.CharField(max_length=255, default='tech')
+    primary_platform = models.CharField(max_length=255, default='youtube')
     platform_link = models.URLField(blank=True, null=True)
     subscriber_count = models.IntegerField(default=0)
     engagement_rate = models.DecimalField(max_digits=4, decimal_places=2, default=2.50)
@@ -56,13 +57,13 @@ class CreatorProfile(models.Model):
         ]
 
     def __str__(self):
-        return f"Creator: {self.user.username} ({self.points_balance} pts)"
+        return f"Creator: {self.name or self.user.username} ({self.points_balance} pts)"
 
 
 class BrandProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='brand_profile')
     company_name = models.CharField(max_length=255, blank=True)
-    industry = models.CharField(max_length=100, blank=True)
+    industry = models.CharField(max_length=255, blank=True)
     website = models.URLField(blank=True, null=True)
     logo_url = models.URLField(blank=True, null=True)
     company_size = models.CharField(max_length=50, blank=True, null=True)
@@ -84,9 +85,11 @@ class Campaign(models.Model):
     description = models.TextField()
     points_reward = models.PositiveIntegerField(default=0, help_text="Points awarded to creator upon completion")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    target_platform = models.CharField(max_length=20, default='youtube')
-    target_niche = models.CharField(max_length=50, default='tech')
+    target_platform = models.CharField(max_length=100, default='youtube')
+    target_niche = models.CharField(max_length=100, default='tech')
     min_subscribers_required = models.IntegerField(default=0)
     creators_needed = models.IntegerField(default=1)
     
@@ -110,6 +113,7 @@ class Campaign(models.Model):
 class CampaignApplication(models.Model):
     STATUS_CHOICES = (
         ('pending', 'Pending'),
+        ('offered', 'Offered by Brand'),
         ('accepted', 'Accepted / Hired'),
         ('rejected', 'Rejected'),
         ('submitted', 'Work Submitted'),

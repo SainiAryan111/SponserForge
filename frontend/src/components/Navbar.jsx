@@ -1,10 +1,16 @@
 import React, { useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { LogOut, User, LayoutDashboard } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { LogOut, User, LayoutDashboard, Search, History } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function Navbar() {
   const { user, logout } = useContext(AuthContext);
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   return (
     <nav className="bg-slate-850/80 backdrop-blur-md border-b border-slate-700/60 px-6 py-3.5 flex items-center justify-between sticky top-0 z-40">
@@ -14,13 +20,31 @@ export default function Navbar() {
         </div>
         <div>
           <h1 className="text-white font-bold text-base leading-tight">SponsorForge</h1>
-          <p className="text-slate-400 text-[10px] uppercase tracking-wider font-semibold">Vector Matcher Engine</p>
+          <p className="text-slate-400 text-[10px] uppercase tracking-wider font-semibold">Smart Sponsor Marketplace</p>
         </div>
       </Link>
 
-      <div className="flex items-center space-x-4">
+      <div className="flex items-center space-x-3 sm:space-x-4">
         {user ? (
           <>
+            <Link
+              to="/search"
+              className="flex items-center space-x-1.5 text-slate-300 hover:text-white text-sm font-medium transition bg-slate-800/80 hover:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700/80"
+              title="Search Directory"
+            >
+              <Search className="w-4 h-4 text-indigo-400" />
+              <span className="hidden md:inline">Search</span>
+            </Link>
+
+            <Link
+              to="/history"
+              className="flex items-center space-x-1.5 text-slate-300 hover:text-white text-sm font-medium transition"
+              title="History"
+            >
+              <History className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">History</span>
+            </Link>
+
             <Link
               to="/dashboard"
               className="flex items-center space-x-1.5 text-slate-300 hover:text-white text-sm font-medium transition"
@@ -45,7 +69,7 @@ export default function Navbar() {
             </Link>
 
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="flex items-center space-x-1.5 text-slate-400 hover:text-red-400 text-sm font-medium transition cursor-pointer"
             >
               <LogOut className="w-4 h-4" />

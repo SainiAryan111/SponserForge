@@ -52,7 +52,7 @@ export default function WelcomePage() {
           <div className="p-2.5 bg-indigo-500/10 rounded-xl w-fit text-indigo-400">
             <Building2 className="w-6 h-6" />
           </div>
-          <h2 className="text-lg font-bold text-white">For Brand Entities</h2>
+          <h2 className="text-lg font-bold text-white">For Brands</h2>
           <p className="text-slate-400 text-sm leading-relaxed">
             Post campaign briefs, target precise niches, set audience criteria, and connect directly with vetted creators.
           </p>
@@ -62,7 +62,7 @@ export default function WelcomePage() {
           <div className="p-2.5 bg-indigo-500/10 rounded-xl w-fit text-indigo-400">
             <UserCheck className="w-6 h-6" />
           </div>
-          <h2 className="text-lg font-bold text-white">For Creator Nodes</h2>
+          <h2 className="text-lg font-bold text-white">For Creators</h2>
           <p className="text-slate-400 text-sm leading-relaxed">
             Showcase your audience metrics, submit pitches, and secure sponsorships with brands looking for your specific audience.
           </p>

@@ -2,7 +2,11 @@ import React, { useState, useContext } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { AuthContext } from '../context/AuthContext.jsx';
-import { Building2, UserCheck, Sparkles } from 'lucide-react';
+import { Building2, UserCheck, Sparkles, Plus } from 'lucide-react';
+
+const DEFAULT_NICHES = ['tech', 'gaming', 'lifestyle', 'fashion', 'fitness', 'finance'];
+const DEFAULT_PLATFORMS = ['youtube', 'instagram', 'tiktok', 'twitch'];
+const DEFAULT_INDUSTRIES = ['Software / SaaS', 'E-Commerce & Retail', 'Gaming & Hardware', 'Health & Fitness', 'Fashion & Apparel', 'Financial Tech'];
 
 export default function Signup() {
   const [role, setRole] = useState('brand');
@@ -14,15 +18,20 @@ export default function Signup() {
 
   // Brand Profile Fields
   const [companyName, setCompanyName] = useState('');
-  const [industry, setIndustry] = useState('');
+  const [industry, setIndustry] = useState(DEFAULT_INDUSTRIES[0]);
+  const [customIndustry, setCustomIndustry] = useState('');
   const [website, setWebsite] = useState('');
   const [companySize, setCompanySize] = useState('10-50');
+  const [numericEmpCount, setNumericEmpCount] = useState('');
   const [targetAudience, setTargetAudience] = useState('');
 
   // Creator Profile Fields
+  const [name, setName] = useState('');
   const [bio, setBio] = useState('');
-  const [niche, setNiche] = useState('tech');
-  const [primaryPlatform, setPrimaryPlatform] = useState('youtube');
+  const [selectedNiches, setSelectedNiches] = useState(['tech']);
+  const [customNiche, setCustomNiche] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState(['youtube']);
+  const [customPlatform, setCustomPlatform] = useState('');
   const [platformLink, setPlatformLink] = useState('');
   const [subscriberCount, setSubscriberCount] = useState('');
   const [engagementRate, setEngagementRate] = useState('');
@@ -34,10 +43,64 @@ export default function Signup() {
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
 
+  // Automatic Company Size Mapping from Numeric Input
+  const handleNumericEmpCountChange = (val) => {
+    setNumericEmpCount(val);
+    const count = parseInt(val, 10);
+    if (!isNaN(count)) {
+      if (count <= 10) setCompanySize('1-10');
+      else if (count <= 50) setCompanySize('10-50');
+      else if (count <= 250) setCompanySize('50-250');
+      else setCompanySize('250+');
+    }
+  };
+
+  const handleNicheCheckbox = (n) => {
+    if (selectedNiches.includes(n)) {
+      if (selectedNiches.length > 1) {
+        setSelectedNiches(selectedNiches.filter(item => item !== n));
+      }
+    } else {
+      setSelectedNiches([...selectedNiches, n]);
+    }
+  };
+
+  const handlePlatformCheckbox = (p) => {
+    if (selectedPlatforms.includes(p)) {
+      if (selectedPlatforms.length > 1) {
+        setSelectedPlatforms(selectedPlatforms.filter(item => item !== p));
+      }
+    } else {
+      setSelectedPlatforms([...selectedPlatforms, p]);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Validations
+    if (!username.trim() || !email.trim() || !password) {
+      return setError('Username, Email, and Password are required.');
+    }
+
     setLoading(true);
+
+    // Compute final niche list including custom option if provided
+    let finalNiches = [...selectedNiches];
+    if (customNiche.trim()) {
+      finalNiches.push(customNiche.trim().toLowerCase());
+    }
+
+    let finalPlatforms = [...selectedPlatforms];
+    if (customPlatform.trim()) {
+      finalPlatforms.push(customPlatform.trim().toLowerCase());
+    }
+
+    let finalIndustry = industry;
+    if (customIndustry.trim()) {
+      finalIndustry = customIndustry.trim();
+    }
 
     // Parse numeric values safely
     const parsedSubscribers = subscriberCount === '' ? 0 : parseInt(subscriberCount, 10);
@@ -46,15 +109,16 @@ export default function Signup() {
     const rolePayload = role === 'brand' 
       ? {
           company_name: companyName.trim(),
-          industry: industry.trim(),
+          industry: finalIndustry,
           website: website.trim() || null,
           company_size: companySize,
           target_audience: targetAudience.trim()
         } 
       : {
+          name: name.trim(),
           bio: bio.trim(),
-          niche,
-          primary_platform: primaryPlatform,
+          niche: finalNiches.join(','),
+          primary_platform: finalPlatforms.join(','),
           platform_link: platformLink.trim() || null,
           subscriber_count: isNaN(parsedSubscribers) ? 0 : parsedSubscribers,
           engagement_rate: isNaN(parsedEngagement) ? null : parsedEngagement,
@@ -71,12 +135,10 @@ export default function Signup() {
 
     try {
       await api.post('auth/signup/', payload);
-      // Ensure login parameter list matches AuthContext implementation
       await login(username, password); 
       navigate('/dashboard');
     } catch (err) {
       console.error('Signup error:', err);
-      // Parse DRF validation object errors (e.g., { username: ["This field is required."] })
       const data = err.response?.data;
       let errMsg = 'Registration failed. Please check your inputs and try again.';
 
@@ -87,7 +149,6 @@ export default function Signup() {
       } else if (data?.detail) {
         errMsg = data.detail;
       } else if (data && typeof data === 'object') {
-        // Extract first field error from Django Rest Framework serializer error response
         const firstKey = Object.keys(data)[0];
         if (firstKey && Array.isArray(data[firstKey])) {
           errMsg = `${firstKey}: ${data[firstKey][0]}`;
@@ -110,7 +171,7 @@ export default function Signup() {
             <Sparkles className="w-6 h-6" />
             <span>SponsorForge</span>
           </div>
-          <p className="text-slate-400 text-sm">Create your {role === 'brand' ? 'Brand Entity' : 'Creator Node'} account</p>
+          <p className="text-slate-400 text-sm">Create your {role === 'brand' ? 'Brand' : 'Creator'} account</p>
         </div>
 
         {/* Role Selector Tabs */}
@@ -125,7 +186,7 @@ export default function Signup() {
             }`}
           >
             <Building2 className="w-4 h-4" />
-            <span>Brand Entity</span>
+            <span>Brand Account</span>
           </button>
           <button
             type="button"
@@ -137,7 +198,7 @@ export default function Signup() {
             }`}
           >
             <UserCheck className="w-4 h-4" />
-            <span>Creator Node</span>
+            <span>Creator Account</span>
           </button>
         </div>
 
@@ -150,7 +211,7 @@ export default function Signup() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Section: Account Credentials */}
+          {/* Account Credentials */}
           <div className="text-xs font-bold uppercase text-indigo-400 tracking-wider pt-2">
             Account Details
           </div>
@@ -199,7 +260,7 @@ export default function Signup() {
             />
           </div>
 
-          {/* Section: Dynamic Profile Fields */}
+          {/* Dynamic Profile Fields */}
           <div className="text-xs font-bold uppercase text-indigo-400 tracking-wider pt-4 border-t border-slate-700/60">
             {role === 'brand' ? 'Brand Profile Setup' : 'Creator Profile Setup'}
           </div>
@@ -223,16 +284,32 @@ export default function Signup() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Industry
+                    Industry Options
                   </label>
-                  <input
-                    type="text"
+                  <select
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                    placeholder="SaaS / Artificial Intelligence"
                     value={industry}
                     onChange={(e) => setIndustry(e.target.value)}
-                  />
+                  >
+                    {DEFAULT_INDUSTRIES.map(ind => (
+                      <option key={ind} value={ind}>{ind}</option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+
+              {/* Custom Industry Option */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  + Or Add Custom Industry Choice (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Type new industry name..."
+                  value={customIndustry}
+                  onChange={(e) => setCustomIndustry(e.target.value)}
+                  className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-4 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -251,7 +328,7 @@ export default function Signup() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Company Size
+                    Company Size Range
                   </label>
                   <select
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
@@ -264,6 +341,21 @@ export default function Signup() {
                     <option value="250+">250+ employees</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Company Size Numeric Input Auto-Selector */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                  Or Type Exact Employee Count (Auto-Selects Option):
+                </label>
+                <input
+                  type="number"
+                  placeholder="e.g. 25"
+                  value={numericEmpCount}
+                  onChange={(e) => handleNumericEmpCountChange(e.target.value)}
+                  onWheel={(e) => e.target.blur()}
+                  className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-4 py-2 text-white text-xs focus:outline-none focus:border-indigo-500"
+                />
               </div>
 
               <div>
@@ -282,39 +374,78 @@ export default function Signup() {
           ) : (
             /* CREATOR SPECIFIC FIELDS */
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Niche
-                  </label>
-                  <select
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                    value={niche}
-                    onChange={(e) => setNiche(e.target.value)}
-                  >
-                    <option value="tech">Technology & AI</option>
-                    <option value="gaming">Gaming & Esports</option>
-                    <option value="lifestyle">Lifestyle & Vlogs</option>
-                    <option value="fashion">Fashion & Beauty</option>
-                    <option value="fitness">Fitness & Health</option>
-                    <option value="finance">Finance & Investing</option>
-                  </select>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                  Creator Display Name
+                </label>
+                <input
+                  type="text"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  placeholder="e.g. Alex Rivera"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+
+              {/* Multi-Select Checkboxes: Niche */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Content Niche(s) - Select Multiple Checkboxes
+                </label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
+                  {DEFAULT_NICHES.map(n => (
+                    <label key={n} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedNiches.includes(n)}
+                        onChange={() => handleNicheCheckbox(n)}
+                        className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="capitalize">{n}</span>
+                    </label>
+                  ))}
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Primary Platform
-                  </label>
-                  <select
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
-                    value={primaryPlatform}
-                    onChange={(e) => setPrimaryPlatform(e.target.value)}
-                  >
-                    <option value="youtube">YouTube</option>
-                    <option value="instagram">Instagram</option>
-                    <option value="tiktok">TikTok</option>
-                    <option value="twitch">Twitch</option>
-                  </select>
+                {/* Add Custom Niche Choice */}
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    placeholder="+ Add Custom Choice (e.g. AI & Robotics)"
+                    value={customNiche}
+                    onChange={(e) => setCustomNiche(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Multi-Select Checkboxes: Platform */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  Primary Platform(s) - Select Multiple Checkboxes
+                </label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
+                  {DEFAULT_PLATFORMS.map(p => (
+                    <label key={p} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedPlatforms.includes(p)}
+                        onChange={() => handlePlatformCheckbox(p)}
+                        className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="capitalize">{p}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Add Custom Platform Choice */}
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    placeholder="+ Add Custom Choice (e.g. Substack / Podcast)"
+                    value={customPlatform}
+                    onChange={(e) => setCustomPlatform(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
               </div>
 
@@ -343,6 +474,7 @@ export default function Signup() {
                     placeholder="15000"
                     value={subscriberCount}
                     onChange={(e) => setSubscriberCount(e.target.value)}
+                    onWheel={(e) => e.target.blur()}
                   />
                 </div>
               </div>
@@ -361,6 +493,7 @@ export default function Signup() {
                     placeholder="3.85"
                     value={engagementRate}
                     onChange={(e) => setEngagementRate(e.target.value)}
+                    onWheel={(e) => e.target.blur()}
                   />
                 </div>
 
@@ -396,9 +529,9 @@ export default function Signup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition duration-200 text-sm shadow-lg shadow-indigo-600/20 disabled:opacity-50 mt-4"
+            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 rounded-xl transition duration-200 text-sm shadow-lg shadow-indigo-600/20 disabled:opacity-50 mt-4 cursor-pointer"
           >
-            {loading ? 'Creating Account...' : `Register as ${role === 'brand' ? 'Brand Entity' : 'Creator Node'}`}
+            {loading ? 'Creating Account...' : `Register as ${role === 'brand' ? 'Brand Account' : 'Creator Account'}`}
           </button>
         </form>
 

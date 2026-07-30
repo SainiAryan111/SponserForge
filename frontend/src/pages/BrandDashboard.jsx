@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getCampaigns, getApplications, getUserProfile } from '../services/api';
-import CreateCampaignModal from '../components/CreateCampaignModal';
 import ApplicationActionCard from '../components/ApplicationActionCard';
 import CampaignMatchModal from '../components/CampaignMatchModal';
 
 export default function BrandDashboard() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [applications, setApplications] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedMatchCampaign, setSelectedMatchCampaign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('pending');
@@ -36,6 +36,7 @@ export default function BrandDashboard() {
 
   const filteredApplications = applications.filter((app) => {
     if (activeTab === 'pending') return app.status === 'pending';
+    if (activeTab === 'offered') return app.status === 'offered';
     if (activeTab === 'accepted') return app.status === 'accepted';
     if (activeTab === 'submitted') return app.status === 'submitted';
     if (activeTab === 'completed') return app.status === 'completed';
@@ -43,7 +44,7 @@ export default function BrandDashboard() {
   });
 
   const activeCampaigns = campaigns.filter(c => c.status === 'active');
-  const completedCampaigns = campaigns.filter(c => c.status === 'completed');
+  const successfulCampaigns = campaigns.filter(c => c.status === 'completed' || applications.some(a => a.campaign === c.id && a.status === 'completed'));
 
   if (loading) return <div className="loading-spinner">Loading Brand Dashboard...</div>;
 
@@ -53,7 +54,7 @@ export default function BrandDashboard() {
       <header className="dashboard-header">
         <div>
           <h1>{profile?.company_name || profile?.username}'s Portal</h1>
-          <p className="subtitle">Manage campaigns, evaluate applications, and release payouts</p>
+          <p className="subtitle">Manage campaigns, evaluate applications, send direct offers, and release payouts</p>
         </div>
         <div className="balance-badge">
           <span>Points Balance</span>
@@ -65,7 +66,7 @@ export default function BrandDashboard() {
       <section className="dashboard-section">
         <div className="section-header">
           <h2>Active Campaigns ({activeCampaigns.length})</h2>
-          <button className="primary-btn" onClick={() => setIsModalOpen(true)}>
+          <button className="primary-btn" onClick={() => navigate('/campaign/create')}>
             + Create New Campaign
           </button>
         </div>
@@ -79,6 +80,13 @@ export default function BrandDashboard() {
                 <h3>{campaign.title}</h3>
                 <p className="niche-tag">{campaign.target_niche} • {campaign.target_platform}</p>
                 <p className="desc">{campaign.description}</p>
+                
+                {(campaign.start_date || campaign.end_date) && (
+                  <p className="text-xs text-slate-400 my-2">
+                    📅 Timeline: {campaign.start_date || 'N/A'} to {campaign.end_date || 'N/A'}
+                  </p>
+                )}
+
                 <div className="campaign-footer">
                   <span className="reward">{campaign.points_reward} pts</span>
                   <button 
@@ -87,7 +95,9 @@ export default function BrandDashboard() {
                   >
                     AI Match
                   </button>
-                  <span className="subs">Min {campaign.min_subscribers_required} subs • {campaign.creators_needed || 1} creators needed</span>
+                  <span className="subs">
+                    Min {campaign.min_subscribers_required} subs • {campaign.accepted_count || 0}/{campaign.creators_needed || 1} Hired
+                  </span>
                 </div>
               </div>
             ))
@@ -95,22 +105,22 @@ export default function BrandDashboard() {
         </div>
       </section>
 
-      {/* COMPLETED CAMPAIGNS SECTION */}
-      {completedCampaigns.length > 0 && (
+      {/* SUCCESSFUL CAMPAIGNS SECTION */}
+      {successfulCampaigns.length > 0 && (
         <section className="dashboard-section">
           <div className="section-header">
-            <h2>Completed Campaigns ({completedCampaigns.length})</h2>
+            <h2>Successful Campaigns ({successfulCampaigns.length})</h2>
           </div>
 
           <div className="campaign-grid">
-            {completedCampaigns.map((campaign) => (
+            {successfulCampaigns.map((campaign) => (
               <div key={campaign.id} className="campaign-card completed-campaign">
                 <h3>{campaign.title}</h3>
                 <p className="niche-tag">{campaign.target_niche} • {campaign.target_platform}</p>
                 <p className="desc">{campaign.description}</p>
                 <div className="campaign-footer">
                   <span className="reward">{campaign.points_reward} pts</span>
-                  <span className="subs">Min {campaign.min_subscribers_required} subs • {campaign.creators_needed || 1} creators</span>
+                  <span className="subs font-semibold text-emerald-400">✓ Successful & Paid</span>
                 </div>
               </div>
             ))}
@@ -124,6 +134,9 @@ export default function BrandDashboard() {
         <div className="tab-bar">
           <button className={activeTab === 'pending' ? 'active' : ''} onClick={() => setActiveTab('pending')}>
             Pending Review
+          </button>
+          <button className={activeTab === 'offered' ? 'active' : ''} onClick={() => setActiveTab('offered')}>
+            Direct Offers
           </button>
           <button className={activeTab === 'accepted' ? 'active' : ''} onClick={() => setActiveTab('accepted')}>
             In Progress
@@ -151,13 +164,6 @@ export default function BrandDashboard() {
           )}
         </div>
       </section>
-
-      {/* CREATE CAMPAIGN MODAL */}
-      <CreateCampaignModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onCampaignCreated={() => fetchData()}
-      />
 
       {/* CAMPAIGN MATCH MODAL */}
       {selectedMatchCampaign && (

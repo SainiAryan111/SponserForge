@@ -80,6 +80,16 @@ export const searchCreators = (filterParams) => API.post('match-creators/', filt
 export const getCreatorsForCampaign = (campaignId) => API.get(`campaigns/${campaignId}/match/`);
 export const getCampaignsForCreator = (creatorId) => API.get(`creator/match-campaigns/${creatorId}/`);
 
+export const searchUsers = (params) => API.get('users/search/', { params });
+export const offerCampaign = (campaignId, creatorId) => 
+  API.post('applications/offer-campaign/', { campaign_id: campaignId, creator_id: creatorId });
+
+export const acceptOffer = (applicationId) => 
+  API.post(`applications/${applicationId}/accept-offer/`);
+
+export const rejectApplication = (applicationId) => 
+  API.post(`applications/${applicationId}/reject/`);
+
 // ==========================================
 // CAMPAIGN APPLICATIONS & PAYOUT LIFECYCLE
 // ==========================================

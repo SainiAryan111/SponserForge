@@ -68,7 +68,11 @@ def signup_view(request):
             )
         elif role == 'creator':
             bio = data.get('bio', '')
-            niche = data.get('niche', 'tech')
+            raw_niche = data.get('niche', 'tech')
+            niche = ",".join(raw_niche) if isinstance(raw_niche, list) else str(raw_niche)
+            
+            raw_platform = data.get('primary_platform', 'youtube')
+            primary_platform = ",".join(raw_platform) if isinstance(raw_platform, list) else str(raw_platform)
 
             # Generate initial vector embedding
             text_to_embed = f"{niche}. {bio}".strip()
@@ -87,9 +91,10 @@ def signup_view(request):
 
             CreatorProfile.objects.create(
                 user=user,
+                name=data.get('name', ''),
                 bio=bio,
                 niche=niche,
-                primary_platform=data.get('primary_platform', 'youtube'),
+                primary_platform=primary_platform,
                 platform_link=data.get('platform_link'),
                 subscriber_count=sub_count,
                 engagement_rate=eng_rate,
@@ -493,7 +498,49 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         if not hasattr(self.request.user, 'creator_profile'):
             raise PermissionDenied("Only creators can apply to campaigns.")
         creator_profile = getattr(self.request.user, 'creator_profile')
+        campaign = serializer.validated_data.get('campaign')
+
+        # Capacity Check: Check if campaign slots are already full
+        accepted_count = CampaignApplication.objects.filter(
+            campaign=campaign,
+            status__in=['accepted', 'submitted', 'completed']
+        ).count()
+        if accepted_count >= campaign.creators_needed:
+            raise PermissionDenied("This campaign has already filled all available creator positions.")
+
         serializer.save(creator=creator_profile)
+
+    @action(detail=False, methods=['post'], url_path='offer-campaign')
+    def offer_campaign(self, request):
+        if getattr(request.user, 'role', '') != 'brand':
+            return Response({"error": "Only brand entities can send campaign offers."}, status=status.HTTP_403_FORBIDDEN)
+        
+        campaign_id = request.data.get('campaign_id')
+        creator_id = request.data.get('creator_id')
+
+        if not campaign_id or not creator_id:
+            return Response({"error": "campaign_id and creator_id are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        campaign = get_object_or_404(Campaign, id=campaign_id, brand_user=request.user)
+        creator_profile = get_object_or_404(CreatorProfile, id=creator_id)
+
+        # Check existing application
+        application, created = CampaignApplication.objects.get_or_create(
+            campaign=campaign,
+            creator=creator_profile,
+            defaults={'status': 'offered', 'pitch': 'Direct campaign offer from brand.'}
+        )
+
+        if not created:
+            if application.status in ['accepted', 'submitted', 'completed']:
+                return Response({"error": "Creator is already hired for this campaign."}, status=status.HTTP_400_BAD_REQUEST)
+            application.status = 'offered'
+            application.save()
+
+        return Response({
+            "message": f"Offered campaign '{campaign.title}' to {creator_profile.user.username}!",
+            "application": CampaignApplicationSerializer(application).data
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='accept')
     def accept_application(self, request, pk=None):
@@ -503,8 +550,17 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         if campaign.brand_user != request.user:
             return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
 
-        if application.status != 'pending':
-            return Response({"error": "Application can only be accepted if it is in pending state."}, status=status.HTTP_400_BAD_REQUEST)
+        if application.status not in ['pending', 'offered']:
+            return Response({"error": "Application can only be accepted if in pending or offered state."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Capacity check
+        accepted_count = CampaignApplication.objects.filter(
+            campaign=campaign,
+            status__in=['accepted', 'submitted', 'completed']
+        ).count()
+
+        if accepted_count >= campaign.creators_needed:
+            return Response({"error": "Campaign has already filled all available creator positions."}, status=status.HTTP_400_BAD_REQUEST)
 
         brand_profile = getattr(request.user, 'brand_profile', None)
         if not brand_profile:
@@ -518,17 +574,65 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         application.status = 'accepted'
         application.save()
 
-        # Check if campaign has reached the required number of creators
+        accepted_count += 1
+
+        # First-Come First-Served Race Condition logic:
+        # If slots are now full, automatically reject remaining pending/offered applications!
+        if accepted_count >= campaign.creators_needed:
+            CampaignApplication.objects.filter(
+                campaign=campaign,
+                status__in=['pending', 'offered']
+            ).exclude(id=application.id).update(status='rejected')
+
+        return Response({"message": "Application accepted! Creator is hired."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='accept-offer')
+    def accept_offer(self, request, pk=None):
+        application = self.get_object()
+        campaign = application.campaign
+
+        if application.creator.user != request.user:
+            return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+
+        if application.status != 'offered':
+            return Response({"error": "No pending offer found for this application."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Capacity check
         accepted_count = CampaignApplication.objects.filter(
             campaign=campaign,
             status__in=['accepted', 'submitted', 'completed']
         ).count()
 
         if accepted_count >= campaign.creators_needed:
-            campaign.status = 'completed'
-            campaign.save()
+            application.status = 'rejected'
+            application.save()
+            return Response({"error": "Sorry, all positions for this campaign have already been filled by other creators."}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"message": "Application accepted! Creator is hired."}, status=status.HTTP_200_OK)
+        application.status = 'accepted'
+        application.save()
+
+        accepted_count += 1
+
+        # If campaign slots are now full, auto-reject remaining pending/offered applicants
+        if accepted_count >= campaign.creators_needed:
+            CampaignApplication.objects.filter(
+                campaign=campaign,
+                status__in=['pending', 'offered']
+            ).exclude(id=application.id).update(status='rejected')
+
+        return Response({"message": "Offer accepted! You are hired for this campaign."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject_application(self, request, pk=None):
+        application = self.get_object()
+        
+        # Either campaign brand owner or creator can reject
+        if application.campaign.brand_user != request.user and application.creator.user != request.user:
+            return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+
+        application.status = 'rejected'
+        application.save()
+        return Response({"message": "Application/offer rejected."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='submit-work')
     def submit_work(self, request, pk=None):
@@ -597,3 +701,123 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             return Response({"error": f"Transaction failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ==========================================
+# 9. GLOBAL USER SEARCH AND MULTI-ATTRIBUTE SORTING
+# ==========================================
+class UserSearchAndSortView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        role_filter = request.query_params.get('role', '').strip()
+        industry_filter = request.query_params.get('industry', '').strip()
+        niche_filter = request.query_params.get('niche', '').strip()
+        platform_filter = request.query_params.get('platform', '').strip()
+        ordering = request.query_params.get('ordering', '').strip()
+
+        # Attribute filter & sorting role scoping
+        if niche_filter or platform_filter or ordering in ['subscriber_count', '-subscriber_count', 'engagement_rate', '-engagement_rate']:
+            if not role_filter:
+                role_filter = 'creator'
+        elif industry_filter or ordering in ['company_size_asc', 'company_size_desc']:
+            if not role_filter:
+                role_filter = 'brand'
+
+        users_data = []
+
+        # Creators Query
+        if role_filter in ['', 'creator']:
+            creators_qs = CreatorProfile.objects.select_related('user').all()
+
+            if query:
+                creators_qs = creators_qs.filter(
+                    Q(user__username__icontains=query) | 
+                    Q(name__icontains=query) |
+                    Q(bio__icontains=query)
+                )
+
+            if niche_filter:
+                creators_qs = creators_qs.filter(niche__icontains=niche_filter)
+            if platform_filter:
+                creators_qs = creators_qs.filter(primary_platform__icontains=platform_filter)
+
+            if ordering == 'subscriber_count':
+                creators_qs = creators_qs.order_by('subscriber_count')
+            elif ordering == '-subscriber_count':
+                creators_qs = creators_qs.order_by('-subscriber_count')
+            elif ordering == 'engagement_rate':
+                creators_qs = creators_qs.order_by('engagement_rate')
+            elif ordering == '-engagement_rate':
+                creators_qs = creators_qs.order_by('-engagement_rate')
+            else:
+                creators_qs = creators_qs.order_by('-subscriber_count')
+
+            for c in creators_qs:
+                users_data.append({
+                    "id": c.id,
+                    "user_id": c.user.id,
+                    "username": c.user.username,
+                    "name": c.name or c.user.username,
+                    "email": c.user.email,
+                    "role": "creator",
+                    "bio": c.bio,
+                    "niche": c.niche,
+                    "primary_platform": c.primary_platform,
+                    "platform_link": c.platform_link,
+                    "subscriber_count": c.subscriber_count,
+                    "engagement_rate": float(c.engagement_rate or 0),
+                    "avatar_url": c.avatar_url,
+                    "location": c.location,
+                    "points_balance": c.points_balance
+                })
+
+        # Brands Query
+        if role_filter in ['', 'brand']:
+            brands_qs = BrandProfile.objects.select_related('user').all()
+
+            if query:
+                brands_qs = brands_qs.filter(
+                    Q(user__username__icontains=query) | 
+                    Q(company_name__icontains=query) |
+                    Q(industry__icontains=query)
+                )
+
+            if industry_filter:
+                brands_qs = brands_qs.filter(industry__icontains=industry_filter)
+
+            brand_list = []
+            for b in brands_qs:
+                size_rank = 0
+                sz = (b.company_size or '').lower()
+                if '1-10' in sz: size_rank = 1
+                elif '10-50' in sz or '11-50' in sz: size_rank = 2
+                elif '50-250' in sz or '51-200' in sz: size_rank = 3
+                elif '250' in sz or '500' in sz: size_rank = 4
+
+                brand_list.append({
+                    "id": b.id,
+                    "user_id": b.user.id,
+                    "username": b.user.username,
+                    "name": b.company_name or b.user.username,
+                    "email": b.user.email,
+                    "role": "brand",
+                    "company_name": b.company_name,
+                    "industry": b.industry,
+                    "website": b.website,
+                    "logo_url": b.logo_url,
+                    "company_size": b.company_size,
+                    "size_rank": size_rank,
+                    "target_audience": b.target_audience,
+                    "points_balance": b.points_balance
+                })
+
+            if ordering == 'company_size_asc':
+                brand_list.sort(key=lambda x: x['size_rank'])
+            elif ordering == 'company_size_desc':
+                brand_list.sort(key=lambda x: x['size_rank'], reverse=True)
+
+            users_data.extend(brand_list)
+
+        return Response({"count": len(users_data), "results": users_data}, status=status.HTTP_200_OK)

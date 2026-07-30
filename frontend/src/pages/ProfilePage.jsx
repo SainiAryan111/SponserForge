@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { getUserProfile, updateUserProfile } from '../services/api';
+import { getUserProfile, updateUserProfile, getCampaigns, getApplications } from '../services/api';
+import { ArrowLeft, History as HistoryIcon, Award, Sparkles } from 'lucide-react';
+
+const DEFAULT_NICHES = ['tech', 'gaming', 'lifestyle', 'fashion', 'fitness', 'finance'];
+const DEFAULT_PLATFORMS = ['youtube', 'instagram', 'tiktok', 'twitch'];
 
 export default function ProfilePage() {
+  const navigate = useNavigate();
   const { user, setUser } = useContext(AuthContext);
 
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     company_name: '',
+    name: '',
     primary_platform: 'youtube',
     subscriber_count: 0,
     niche: '',
@@ -16,6 +23,12 @@ export default function ProfilePage() {
     points_balance: 0,
   });
 
+  const [selectedNiches, setSelectedNiches] = useState([]);
+  const [customNiche, setCustomNiche] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState([]);
+  const [customPlatform, setCustomPlatform] = useState('');
+
+  const [pastCampaigns, setPastCampaigns] = useState([]);
   const [topUpAmount, setTopUpAmount] = useState(1000);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,12 +46,30 @@ export default function ProfilePage() {
         username: data.username || '',
         email: data.email || '',
         company_name: data.company_name || '',
+        name: data.name || '',
         primary_platform: data.primary_platform || 'youtube',
         subscriber_count: data.subscriber_count || 0,
         niche: data.niche || '',
         bio: data.bio || '',
         points_balance: data.points_balance || 0,
       });
+
+      // Parse niches & platforms
+      if (data.niche) {
+        setSelectedNiches(data.niche.split(',').map(s => s.trim().toLowerCase()));
+      }
+      if (data.primary_platform) {
+        setSelectedPlatforms(data.primary_platform.split(',').map(s => s.trim().toLowerCase()));
+      }
+
+      // Fetch Previous Campaigns
+      if (user?.role === 'brand') {
+        const campaignsRes = await getCampaigns();
+        setPastCampaigns(campaignsRes.data || []);
+      } else {
+        const appsRes = await getApplications();
+        setPastCampaigns(appsRes.data || []);
+      }
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to load profile data.' });
     } finally {
@@ -54,15 +85,51 @@ export default function ProfilePage() {
     }));
   };
 
+  const handleNicheCheckbox = (n) => {
+    if (selectedNiches.includes(n)) {
+      if (selectedNiches.length > 1) {
+        setSelectedNiches(selectedNiches.filter(item => item !== n));
+      }
+    } else {
+      setSelectedNiches([...selectedNiches, n]);
+    }
+  };
+
+  const handlePlatformCheckbox = (p) => {
+    if (selectedPlatforms.includes(p)) {
+      if (selectedPlatforms.length > 1) {
+        setSelectedPlatforms(selectedPlatforms.filter(item => item !== p));
+      }
+    } else {
+      setSelectedPlatforms([...selectedPlatforms, p]);
+    }
+  };
+
   // Submit profile edits
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setMessage({ type: '', text: '' });
 
+    let finalNiches = [...selectedNiches];
+    if (customNiche.trim()) {
+      finalNiches.push(customNiche.trim().toLowerCase());
+    }
+
+    let finalPlatforms = [...selectedPlatforms];
+    if (customPlatform.trim()) {
+      finalPlatforms.push(customPlatform.trim().toLowerCase());
+    }
+
+    const payload = {
+      ...formData,
+      niche: finalNiches.join(','),
+      primary_platform: finalPlatforms.join(','),
+    };
+
     try {
-      const res = await updateUserProfile(formData);
-      setUser(res.data); // Keep AuthContext updated
+      const res = await updateUserProfile(payload);
+      setUser(res.data);
       localStorage.setItem('user_data', JSON.stringify(res.data));
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
     } catch (err) {
@@ -111,13 +178,22 @@ export default function ProfilePage() {
   const isBrand = user?.role === 'brand';
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate(-1)}
+        className="flex items-center space-x-2 text-slate-400 hover:text-white mb-6 font-medium transition cursor-pointer"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        <span>Back to Dashboard</span>
+      </button>
+
       {/* HEADER */}
       <div className="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white">Profile Settings</h1>
+          <h1 className="text-3xl font-bold text-white">Profile & Credentials</h1>
           <p className="text-slate-400 mt-1">
-            Manage your account credentials, preferences, and {isBrand ? 'brand identity' : 'creator bio'}.
+            Manage your credentials, content niches, platforms, and {isBrand ? 'brand identity' : 'creator profile'}.
           </p>
         </div>
         <div className="bg-slate-800/80 border border-slate-700 rounded-xl px-5 py-3 flex items-center gap-4 self-start md:self-auto">
@@ -140,7 +216,7 @@ export default function ProfilePage() {
       {/* FEEDBACK NOTIFICATION */}
       {message.text && (
         <div
-          className={`mb-6 p-4 rounded-lg text-sm font-medium border ${
+          className={`mb-6 p-4 rounded-xl text-sm font-medium border ${
             message.type === 'success'
               ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-300'
               : 'bg-rose-950/50 border-rose-500/50 text-rose-300'
@@ -198,63 +274,86 @@ export default function ProfilePage() {
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Target Niche</label>
-                  <input
-                    type="text"
-                    name="niche"
-                    value={formData.niche}
-                    onChange={handleInputChange}
-                    placeholder="e.g. SaaS, Gaming, Consumer Electronics"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
               </div>
             ) : (
               /* CREATOR SPECIFIC FIELDS */
               <div className="space-y-4 pt-4 border-t border-slate-800">
                 <h3 className="text-md font-semibold text-indigo-400">Creator Channel Parameters</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Primary Platform</label>
-                    <select
-                      name="primary_platform"
-                      value={formData.primary_platform}
-                      onChange={handleInputChange}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="youtube">YouTube</option>
-                      <option value="instagram">Instagram</option>
-                      <option value="tiktok">TikTok</option>
-                      <option value="twitch">Twitch</option>
-                    </select>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Creator Display Name</label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    placeholder="e.g. Alex Rivera"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Multi-Select Niche Checkboxes */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Content Niche(s) - Multi-Select</label>
+                  <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
+                    {DEFAULT_NICHES.map(n => (
+                      <label key={n} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedNiches.includes(n)}
+                          onChange={() => handleNicheCheckbox(n)}
+                          className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="capitalize">{n}</span>
+                      </label>
+                    ))}
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-1">Audience / Subscriber Count</label>
-                    <input
-                      type="number"
-                      name="subscriber_count"
-                      value={formData.subscriber_count}
-                      onChange={handleInputChange}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                    />
+                  <input
+                    type="text"
+                    placeholder="+ Add Custom Choice (e.g. AI & Robotics)"
+                    value={customNiche}
+                    onChange={(e) => setCustomNiche(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs mt-2 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                {/* Multi-Select Platform Checkboxes */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Platform(s) - Multi-Select</label>
+                  <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
+                    {DEFAULT_PLATFORMS.map(p => (
+                      <label key={p} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedPlatforms.includes(p)}
+                          onChange={() => handlePlatformCheckbox(p)}
+                          className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="capitalize">{p}</span>
+                      </label>
+                    ))}
                   </div>
+
+                  <input
+                    type="text"
+                    placeholder="+ Add Custom Choice (e.g. Substack / Podcast)"
+                    value={customPlatform}
+                    onChange={(e) => setCustomPlatform(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs mt-2 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Content Niche</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Subscriber Count</label>
                   <input
-                    type="text"
-                    name="niche"
-                    value={formData.niche}
+                    type="number"
+                    name="subscriber_count"
+                    value={formData.subscriber_count}
                     onChange={handleInputChange}
-                    placeholder="e.g. Tech Reviews, Gaming Guides, Fitness"
+                    onWheel={(e) => e.target.blur()}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
                   />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Updating your niche helps our AI vector matcher recommend high-affinity campaigns.
-                  </p>
                 </div>
 
                 <div>
@@ -274,18 +373,18 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={saving}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50"
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'Saving Changes...' : 'Save Profile Changes'}
             </button>
           </form>
         </div>
 
-        {/* SIDEBAR: POINTS MANAGEMENT / QUICK ACTIONS */}
+        {/* SIDEBAR: POINTS & PREVIOUS CAMPAIGNS */}
         <div className="space-y-6">
           {isBrand ? (
             <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Buy Escrow Points</h3>
+              <h3 className="text-lg font-semibold text-white mb-2">Buy Campaign Points</h3>
               <p className="text-xs text-slate-400 mb-4">
                 Top up points to fund reward pools for your upcoming sponsor campaigns.
               </p>
@@ -309,7 +408,7 @@ export default function ProfilePage() {
                   type="button"
                   onClick={handleTopUpPoints}
                   disabled={saving}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   {saving ? 'Processing...' : `Purchase +${topUpAmount} Points`}
                 </button>
@@ -317,17 +416,36 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Creator Perks & Payouts</h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Completed campaigns credit points directly into your account balance.
-              </p>
+              <h3 className="text-lg font-semibold text-white mb-2">Creator Balance</h3>
               <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-400 block">Available for Cashout</span>
+                <span className="text-xs text-slate-400 block">Available Balance</span>
                 <span className="text-2xl font-bold text-emerald-400">{formData.points_balance} pts</span>
-                <span className="text-xs text-slate-500 block mt-1">Est. Value: ${(formData.points_balance * 0.1).toFixed(2)} USD</span>
               </div>
             </div>
           )}
+
+          {/* PREVIOUS CAMPAIGNS SECTION */}
+          <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <HistoryIcon className="w-5 h-5 text-indigo-400" />
+              <span>Previous Campaigns</span>
+            </h3>
+
+            {pastCampaigns.length === 0 ? (
+              <p className="text-xs text-slate-400">No previous campaign history found.</p>
+            ) : (
+              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1 scrollbar-none">
+                {pastCampaigns.slice(0, 5).map((item) => (
+                  <div key={item.id} className="bg-slate-900 p-3 rounded-xl border border-slate-700/60 text-xs">
+                    <h4 className="text-white font-semibold">{item.title || item.campaign_title}</h4>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Status: <span className="text-indigo-400 capitalize">{item.status}</span> • Reward: {item.points_reward} pts
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
