@@ -2,13 +2,14 @@ import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './context/AuthContext.jsx';
 import WelcomePage from './pages/WelcomePage.jsx';
-import PresentationDeck from './pages/PresentationDeck.jsx';
 import Login from './pages/Login.jsx';
 import Signup from './pages/Signup.jsx';
 import BrandDashboard from './pages/BrandDashboard.jsx';
 import CreatorDashboard from './pages/CreatorDashboard.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import CreateCampaignPage from './pages/CreateCampaignPage.jsx';
+import CampaignDetailPage from './pages/CampaignDetailPage.jsx';
+import PreviousWorkPage from './pages/PreviousWorkPage.jsx';
 import HistoryPage from './pages/HistoryPage.jsx';
 import SearchUsersPage from './pages/SearchUsersPage.jsx';
 import Footer from './components/Footer.jsx';
@@ -16,7 +17,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Navbar from './components/Navbar.jsx';
 import './App.css';
 
-// Role-Aware Protected Route Guard
+// Role-Aware Protected Route Guard for Authenticated Users
 const ProtectedRoute = ({ children, allowedRole }) => {
   const { user, loading } = useContext(AuthContext);
 
@@ -41,8 +42,8 @@ const ProtectedRoute = ({ children, allowedRole }) => {
   return children;
 };
 
-// Smart Redirector for generic /dashboard path
-const DashboardRedirect = () => {
+// Route Guard for Landing / Welcome Page: Redirects logged-in users to /dashboard
+const HomeRouteGuard = () => {
   const { user, loading } = useContext(AuthContext);
 
   if (loading) {
@@ -53,15 +54,24 @@ const DashboardRedirect = () => {
     );
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
   }
 
-  // Redirect based on user role
-  if (user.role === 'brand') {
-    return <Navigate to="/brand/dashboard" replace />;
+  return <WelcomePage />;
+};
+
+// Route Guard for Guest Only pages (Login & Signup)
+const GuestOnlyRoute = ({ children }) => {
+  const { user, loading } = useContext(AuthContext);
+
+  if (loading) return null;
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
   }
-  return <Navigate to="/creator/dashboard" replace />;
+
+  return children;
 };
 
 // Layout component ensuring the Footer stays at the bottom across all pages
@@ -84,20 +94,35 @@ function App() {
         <Routes>
           {/* Main Layout Wrap with Global Footer */}
           <Route element={<MainLayout />}>
-            {/* Public Routes */}
-            <Route path="/" element={<WelcomePage />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/deck" element={<PresentationDeck />} />
+            {/* Landing / Welcome Route: Logged-in users automatically redirect to /dashboard */}
+            <Route path="/" element={<HomeRouteGuard />} />
+            
+            {/* Guest Only Auth Routes */}
+            <Route
+              path="/login"
+              element={
+                <GuestOnlyRoute>
+                  <Login />
+                </GuestOnlyRoute>
+              }
+            />
+            <Route
+              path="/signup"
+              element={
+                <GuestOnlyRoute>
+                  <Signup />
+                </GuestOnlyRoute>
+              }
+            />
 
             {/* Dynamic Dashboard Route */}
-            <Route 
-              path="/dashboard" 
+            <Route
+              path="/dashboard"
               element={
                 <ProtectedRoute>
                   <Dashboard />
                 </ProtectedRoute>
-              } 
+              }
             />
 
             {/* Brand Dashboard */}
@@ -130,6 +155,34 @@ function App() {
               }
             />
 
+            {/* Campaign Detail Page */}
+            <Route
+              path="/campaign/:id"
+              element={
+                <ProtectedRoute>
+                  <CampaignDetailPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Previous Work & Deliverables Portfolio Page */}
+            <Route
+              path="/portfolio"
+              element={
+                <ProtectedRoute>
+                  <PreviousWorkPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/previous-work"
+              element={
+                <ProtectedRoute>
+                  <PreviousWorkPage />
+                </ProtectedRoute>
+              }
+            />
+
             {/* History Page */}
             <Route
               path="/history"
@@ -150,7 +203,7 @@ function App() {
               }
             />
 
-            {/* Profile Page (accessible by both roles) */}
+            {/* Profile Page */}
             <Route
               path="/profile"
               element={
@@ -160,7 +213,7 @@ function App() {
               }
             />
 
-            {/* Redirect unknown routes back to Home */}
+            {/* Catch-all Fallback Route */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

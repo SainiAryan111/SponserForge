@@ -2,10 +2,27 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { getUserProfile, updateUserProfile, getCampaigns, getApplications } from '../services/api';
-import { ArrowLeft, History as HistoryIcon, Award, Sparkles } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  History as HistoryIcon, 
+  Award, 
+  Sparkles, 
+  Star, 
+  Building2, 
+  Zap, 
+  Save, 
+  Plus, 
+  Globe, 
+  MapPin, 
+  Image, 
+  Percent, 
+  Users, 
+  Link as LinkIcon 
+} from 'lucide-react';
 
 const DEFAULT_NICHES = ['tech', 'gaming', 'lifestyle', 'fashion', 'fitness', 'finance'];
 const DEFAULT_PLATFORMS = ['youtube', 'instagram', 'tiktok', 'twitch'];
+const DEFAULT_INDUSTRIES = ['SaaS & AI Software', 'E-Commerce & Retail', 'Gaming & Hardware', 'Fitness & Supplements', 'Fashion & Apparel', 'Financial Tech & Crypto'];
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -14,21 +31,35 @@ export default function ProfilePage() {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
+    // Brand Fields
     company_name: '',
+    industry: DEFAULT_INDUSTRIES[0],
+    website: '',
+    company_size: '10-50',
+    target_audience: '',
+    logo_url: '',
+    // Creator Fields
     name: '',
-    primary_platform: 'youtube',
+    platform_link: '',
     subscriber_count: 0,
-    niche: '',
+    engagement_rate: 2.50,
+    avatar_url: '',
+    // Shared Fields
     bio: '',
+    location: '',
     points_balance: 0,
+    rating: 5.0,
+    total_ratings_count: 0,
   });
+
+  const [customIndustry, setCustomIndustry] = useState('');
+  const [numericEmpCount, setNumericEmpCount] = useState('');
 
   const [selectedNiches, setSelectedNiches] = useState([]);
   const [customNiche, setCustomNiche] = useState('');
   const [selectedPlatforms, setSelectedPlatforms] = useState([]);
   const [customPlatform, setCustomPlatform] = useState('');
 
-  const [pastCampaigns, setPastCampaigns] = useState([]);
   const [topUpAmount, setTopUpAmount] = useState(1000);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,15 +77,23 @@ export default function ProfilePage() {
         username: data.username || '',
         email: data.email || '',
         company_name: data.company_name || '',
+        industry: data.industry || DEFAULT_INDUSTRIES[0],
+        website: data.website || '',
+        company_size: data.company_size || '10-50',
+        target_audience: data.target_audience || '',
+        logo_url: data.logo_url || '',
         name: data.name || '',
-        primary_platform: data.primary_platform || 'youtube',
+        platform_link: data.platform_link || '',
         subscriber_count: data.subscriber_count || 0,
-        niche: data.niche || '',
+        engagement_rate: data.engagement_rate ? parseFloat(data.engagement_rate) : 2.50,
+        avatar_url: data.avatar_url || '',
         bio: data.bio || '',
+        location: data.location || '',
         points_balance: data.points_balance || 0,
+        rating: data.rating ? Number(data.rating) : 5.0,
+        total_ratings_count: data.total_ratings_count || 0,
       });
 
-      // Parse niches & platforms
       if (data.niche) {
         setSelectedNiches(data.niche.split(',').map(s => s.trim().toLowerCase()));
       }
@@ -62,13 +101,8 @@ export default function ProfilePage() {
         setSelectedPlatforms(data.primary_platform.split(',').map(s => s.trim().toLowerCase()));
       }
 
-      // Fetch Previous Campaigns
-      if (user?.role === 'brand') {
-        const campaignsRes = await getCampaigns();
-        setPastCampaigns(campaignsRes.data || []);
-      } else {
-        const appsRes = await getApplications();
-        setPastCampaigns(appsRes.data || []);
+      if (data.industry && !DEFAULT_INDUSTRIES.includes(data.industry)) {
+        setCustomIndustry(data.industry);
       }
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to load profile data.' });
@@ -83,6 +117,19 @@ export default function ProfilePage() {
       ...prev,
       [name]: value,
     }));
+  };
+
+  const handleNumericEmpCountChange = (val) => {
+    setNumericEmpCount(val);
+    const count = parseInt(val, 10);
+    if (!isNaN(count)) {
+      let sizeScale = '1-10';
+      if (count <= 10) sizeScale = '1-10';
+      else if (count <= 50) sizeScale = '10-50';
+      else if (count <= 250) sizeScale = '50-250';
+      else sizeScale = '250+';
+      setFormData(prev => ({ ...prev, company_size: sizeScale }));
+    }
   };
 
   const handleNicheCheckbox = (n) => {
@@ -105,46 +152,66 @@ export default function ProfilePage() {
     }
   };
 
-  // Submit profile edits
+  const handleAddCustomNiche = (e) => {
+    e.preventDefault();
+    if (!customNiche.trim()) return;
+    const cleaned = customNiche.trim().toLowerCase();
+    if (!selectedNiches.includes(cleaned)) {
+      setSelectedNiches([...selectedNiches, cleaned]);
+    }
+    setCustomNiche('');
+  };
+
+  const handleAddCustomPlatform = (e) => {
+    e.preventDefault();
+    if (!customPlatform.trim()) return;
+    const cleaned = customPlatform.trim().toLowerCase();
+    if (!selectedPlatforms.includes(cleaned)) {
+      setSelectedPlatforms([...selectedPlatforms, cleaned]);
+    }
+    setCustomPlatform('');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setMessage({ type: '', text: '' });
 
+    const finalIndustry = customIndustry.trim() ? customIndustry.trim() : formData.industry;
+
     let finalNiches = [...selectedNiches];
     if (customNiche.trim()) {
-      finalNiches.push(customNiche.trim().toLowerCase());
+      const cleaned = customNiche.trim().toLowerCase();
+      if (!finalNiches.includes(cleaned)) finalNiches.push(cleaned);
     }
 
     let finalPlatforms = [...selectedPlatforms];
     if (customPlatform.trim()) {
-      finalPlatforms.push(customPlatform.trim().toLowerCase());
+      const cleaned = customPlatform.trim().toLowerCase();
+      if (!finalPlatforms.includes(cleaned)) finalPlatforms.push(cleaned);
     }
 
-    const payload = {
+    const updatedPayload = {
       ...formData,
+      industry: finalIndustry,
       niche: finalNiches.join(','),
       primary_platform: finalPlatforms.join(','),
     };
 
     try {
-      const res = await updateUserProfile(payload);
+      const res = await updateUserProfile(updatedPayload);
       setUser(res.data);
       localStorage.setItem('user_data', JSON.stringify(res.data));
-      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+      setMessage({ type: 'success', text: 'Profile & credentials updated successfully!' });
     } catch (err) {
-      setMessage({
-        type: 'error',
-        text: err.response?.data?.detail || 'Failed to update profile.',
-      });
+      setMessage({ type: 'error', text: err.response?.data?.error || 'Failed to update profile.' });
     } finally {
       setSaving(false);
     }
   };
 
-  // Quick Points Top-Up for Brand Accounts
-  const handleTopUpPoints = async () => {
-    if (topUpAmount <= 0) return;
+  const handleTopUpPoints = async (e) => {
+    e.preventDefault();
     setSaving(true);
     setMessage({ type: '', text: '' });
 
@@ -158,7 +225,7 @@ export default function ProfilePage() {
       localStorage.setItem('user_data', JSON.stringify(res.data));
       setMessage({
         type: 'success',
-        text: `Successfully added ${topUpAmount} points to your balance!`,
+        text: `Successfully purchased +${topUpAmount} Escrow Points!`,
       });
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to process points purchase.' });
@@ -167,205 +234,414 @@ export default function ProfilePage() {
     }
   };
 
+  const isBrand = user?.role === 'brand';
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className={`min-h-screen flex items-center justify-center font-black text-base ${
+        isBrand ? 'bg-slate-50 text-slate-800' : 'bg-zinc-950 text-zinc-200'
+      }`}>
+        <span>Loading Profile Data...</span>
       </div>
     );
   }
 
-  const isBrand = user?.role === 'brand';
-
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center space-x-2 text-slate-400 hover:text-white mb-6 font-medium transition cursor-pointer"
-      >
-        <ArrowLeft className="w-5 h-5" />
-        <span>Back to Dashboard</span>
-      </button>
-
-      {/* HEADER */}
-      <div className="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-white">Profile & Credentials</h1>
-          <p className="text-slate-400 mt-1">
-            Manage your credentials, content niches, platforms, and {isBrand ? 'brand identity' : 'creator profile'}.
-          </p>
-        </div>
-        <div className="bg-slate-800/80 border border-slate-700 rounded-xl px-5 py-3 flex items-center gap-4 self-start md:self-auto">
-          <div>
-            <span className="text-xs uppercase tracking-wider text-slate-400 block font-semibold">
-              Account Role
-            </span>
-            <span className="text-indigo-400 font-bold capitalize">{user?.role || 'User'}</span>
-          </div>
-          <div className="h-8 w-px bg-slate-700"></div>
-          <div>
-            <span className="text-xs uppercase tracking-wider text-slate-400 block font-semibold">
-              Points Balance
-            </span>
-            <span className="text-emerald-400 font-bold">{formData.points_balance} pts</span>
-          </div>
-        </div>
-      </div>
-
-      {/* FEEDBACK NOTIFICATION */}
-      {message.text && (
-        <div
-          className={`mb-6 p-4 rounded-xl text-sm font-medium border ${
-            message.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-300'
-              : 'bg-rose-950/50 border-rose-500/50 text-rose-300'
+    <div className={`min-h-screen transition-colors duration-500 p-4 sm:p-8 ${
+      isBrand ? 'bg-slate-50 text-slate-900' : 'bg-zinc-950 text-white'
+    }`}>
+      <div className="max-w-5xl mx-auto space-y-6">
+        
+        {/* Back Navigation */}
+        <button
+          onClick={() => navigate(-1)}
+          className={`flex items-center space-x-2 text-xs sm:text-sm font-black transition cursor-pointer ${
+            isBrand ? 'text-slate-700 hover:text-slate-950' : 'text-zinc-300 hover:text-white'
           }`}
         >
-          {message.text}
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Dashboard</span>
+        </button>
+
+        {/* HEADER BAR */}
+        <div className={`rounded-3xl p-6 sm:p-8 shadow-xl border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
+          isBrand
+            ? 'bg-white border-blue-200 shadow-blue-500/5'
+            : 'bg-zinc-900/90 border-red-500/30 shadow-2xl shadow-red-950/50 animate-pulse-red-glow'
+        }`}>
+          <div className="space-y-2">
+            <div className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${
+              isBrand ? 'bg-blue-100 text-blue-900 border border-blue-300' : 'bg-red-950/80 text-red-200 border border-red-500/40'
+            }`}>
+              {isBrand ? <Building2 className="w-4 h-4" /> : <Zap className="w-4 h-4 fill-current" />}
+              <span>{isBrand ? 'Corporate Brand Identity Profile' : 'Creator Sponsorship Profile Node'}</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+              {isBrand ? formData.company_name || formData.username : formData.name || formData.username}
+            </h1>
+            <p className={`text-xs sm:text-sm font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-300'}`}>
+              Manage credentials, platform settings, company specs, & points balance.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {!isBrand && (
+              <div className="bg-zinc-950 border border-amber-500/40 px-4 py-3 rounded-2xl text-center">
+                <span className="text-xs uppercase font-black text-amber-400 block">Rating Score</span>
+                <div className="flex items-center space-x-1 font-black text-amber-300 text-base sm:text-lg">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  <span>{formData.rating.toFixed(1)}</span>
+                  <span className="text-xs text-zinc-400 font-semibold">({formData.total_ratings_count})</span>
+                </div>
+              </div>
+            )}
+
+            <div className={`px-6 py-3 rounded-2xl text-center shadow-lg ${
+              isBrand ? 'bg-blue-600 text-white shadow-blue-600/30' : 'bg-gradient-to-br from-red-600 to-rose-700 text-white shadow-red-600/40'
+            }`}>
+              <span className="text-xs uppercase tracking-wider font-black block opacity-90">Points Balance</span>
+              <div className="text-2xl sm:text-3xl font-black">{formData.points_balance} PTS</div>
+            </div>
+          </div>
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* MAIN PROFILE FORM */}
-        <div className="lg:col-span-2 bg-slate-800/40 border border-slate-800 rounded-2xl p-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <h2 className="text-xl font-semibold text-white mb-4">General Information</h2>
+        {/* FEEDBACK MESSAGE */}
+        {message.text && (
+          <div className={`p-4 rounded-2xl text-xs sm:text-sm font-black text-center border ${
+            message.type === 'success'
+              ? isBrand ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-emerald-500/20 text-emerald-200 border-emerald-500/50'
+              : 'bg-red-500/20 text-red-200 border-red-500/50'
+          }`}>
+            {message.text}
+          </div>
+        )}
 
-            {/* Readonly & Basic Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* MAIN EDIT FORM CONTAINER */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* LEFT 2 COLS: EDIT FORM (ALL SCHEMA FIELDS) */}
+          <form onSubmit={handleSubmit} className={`lg:col-span-2 rounded-3xl p-6 sm:p-8 border shadow-xl space-y-6 ${
+            isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
+          }`}>
+            <h2 className="text-xl font-black border-b pb-3">Edit Complete Profile (All DB Fields)</h2>
+
+            {/* BASE USER CREDENTIALS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Username</label>
+                <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
+                  isBrand ? 'text-slate-800' : 'text-zinc-200'
+                }`}>Username *</label>
                 <input
                   type="text"
                   name="username"
                   value={formData.username}
                   onChange={handleInputChange}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                  required
+                  className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
+                    isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
+                  }`}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-1">Email Address</label>
+                <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
+                  isBrand ? 'text-slate-800' : 'text-zinc-200'
+                }`}>Email Address *</label>
                 <input
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                  required
+                  className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
+                    isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
+                  }`}
                 />
               </div>
             </div>
 
-            {/* BRAND SPECIFIC FIELDS */}
+            {/* BRAND SCHEMA FIELDS */}
             {isBrand ? (
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <h3 className="text-md font-semibold text-indigo-400">Brand Parameters</h3>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Name</label>
+                    <input
+                      type="text"
+                      name="company_name"
+                      value={formData.company_name}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Website URL</label>
+                    <input
+                      type="url"
+                      name="website"
+                      value={formData.website}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* INDUSTRY: DROPDOWN + TYPED CUSTOM INPUT */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Company / Brand Name</label>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Industry Sector</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
+                    <select
+                      name="industry"
+                      value={formData.industry}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      {DEFAULT_INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                    </select>
+
+                    <input
+                      type="text"
+                      placeholder="Or type custom industry..."
+                      value={customIndustry}
+                      onChange={(e) => setCustomIndustry(e.target.value)}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Employee Count (Numeric)</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 25"
+                      value={numericEmpCount}
+                      onChange={(e) => handleNumericEmpCountChange(e.target.value)}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Size Scale</label>
+                    <select
+                      name="company_size"
+                      value={formData.company_size}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="1-10">1-10 Employees (Startup)</option>
+                      <option value="10-50">10-50 Employees (Growth)</option>
+                      <option value="50-250">50-250 Employees (Mid-Market)</option>
+                      <option value="250+">250+ Employees (Enterprise)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Target Audience Demographic</label>
+                    <input
+                      type="text"
+                      name="target_audience"
+                      value={formData.target_audience}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Headquarters Location</label>
+                    <input
+                      type="text"
+                      name="location"
+                      value={formData.location}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Brand Logo Image URL</label>
                   <input
-                    type="text"
-                    name="company_name"
-                    value={formData.company_name}
+                    type="url"
+                    name="logo_url"
+                    value={formData.logo_url}
                     onChange={handleInputChange}
-                    placeholder="e.g. Acme Tech Solutions"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                    className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Bio & Overview</label>
+                  <textarea
+                    rows={3}
+                    name="bio"
+                    value={formData.bio}
+                    onChange={handleInputChange}
+                    className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
             ) : (
-              /* CREATOR SPECIFIC FIELDS */
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <h3 className="text-md font-semibold text-indigo-400">Creator Channel Parameters</h3>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Creator Display Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Alex Rivera"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
-                  />
+              /* CREATOR SCHEMA FIELDS */
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Creator Display Name</label>
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Main Channel / Profile URL</label>
+                    <input
+                      type="url"
+                      name="platform_link"
+                      value={formData.platform_link}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
                 </div>
 
-                {/* Multi-Select Niche Checkboxes */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Subscriber Count</label>
+                    <input
+                      type="number"
+                      name="subscriber_count"
+                      value={formData.subscriber_count}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Engagement Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      name="engagement_rate"
+                      value={formData.engagement_rate}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Location</label>
+                    <input
+                      type="text"
+                      name="location"
+                      value={formData.location}
+                      onChange={handleInputChange}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+
+                {/* CREATOR NICHES: SELECTION + TYPED INPUT */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Content Niche(s) - Multi-Select</label>
-                  <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
-                    {DEFAULT_NICHES.map(n => (
-                      <label key={n} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedNiches.includes(n)}
-                          onChange={() => handleNicheCheckbox(n)}
-                          className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="capitalize">{n}</span>
-                      </label>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Content Niches</label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {DEFAULT_NICHES.map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => handleNicheCheckbox(n)}
+                        className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
+                          selectedNiches.includes(n)
+                            ? 'bg-red-600 text-white shadow-md'
+                            : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        {n}
+                      </button>
                     ))}
                   </div>
 
-                  <input
-                    type="text"
-                    placeholder="+ Add Custom Choice (e.g. AI & Robotics)"
-                    value={customNiche}
-                    onChange={(e) => setCustomNiche(e.target.value)}
-                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs mt-2 focus:outline-none focus:border-indigo-500"
-                  />
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Add custom niche tag..."
+                      value={customNiche}
+                      onChange={(e) => setCustomNiche(e.target.value)}
+                      className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomNiche}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
+                    >
+                      + Add Tag
+                    </button>
+                  </div>
                 </div>
 
-                {/* Multi-Select Platform Checkboxes */}
+                {/* CREATOR PLATFORMS: SELECTION + TYPED INPUT */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Platform(s) - Multi-Select</label>
-                  <div className="grid grid-cols-2 gap-2 bg-slate-900 p-3 rounded-xl border border-slate-700">
-                    {DEFAULT_PLATFORMS.map(p => (
-                      <label key={p} className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedPlatforms.includes(p)}
-                          onChange={() => handlePlatformCheckbox(p)}
-                          className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="capitalize">{p}</span>
-                      </label>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Primary Platforms</label>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {DEFAULT_PLATFORMS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handlePlatformCheckbox(p)}
+                        className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
+                          selectedPlatforms.includes(p)
+                            ? 'bg-red-600 text-white shadow-md'
+                            : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        {p}
+                      </button>
                     ))}
                   </div>
 
-                  <input
-                    type="text"
-                    placeholder="+ Add Custom Choice (e.g. Substack / Podcast)"
-                    value={customPlatform}
-                    onChange={(e) => setCustomPlatform(e.target.value)}
-                    className="w-full bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-white text-xs mt-2 focus:outline-none focus:border-indigo-500"
-                  />
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="Add custom platform tag..."
+                      value={customPlatform}
+                      onChange={(e) => setCustomPlatform(e.target.value)}
+                      className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCustomPlatform}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
+                    >
+                      + Add Tag
+                    </button>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Subscriber Count</label>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Avatar Image URL</label>
                   <input
-                    type="number"
-                    name="subscriber_count"
-                    value={formData.subscriber_count}
+                    type="url"
+                    name="avatar_url"
+                    value={formData.avatar_url}
                     onChange={handleInputChange}
-                    onWheel={(e) => e.target.blur()}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                    className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Creator Pitch Bio</label>
+                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Creator Bio & Content Style</label>
                   <textarea
+                    rows={3}
                     name="bio"
-                    rows="3"
                     value={formData.bio}
                     onChange={handleInputChange}
-                    placeholder="Brief description of your content style, average view count, and audience demographics..."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500 resize-none"
-                  ></textarea>
+                    className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                  />
                 </div>
               </div>
             )}
@@ -373,80 +649,71 @@ export default function ProfilePage() {
             <button
               type="submit"
               disabled={saving}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
+              className={`w-full py-4 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
+                isBrand ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30' : 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/40'
+              }`}
             >
-              {saving ? 'Saving Changes...' : 'Save Profile Changes'}
+              <Save className="w-4 h-4" />
+              <span>{saving ? 'Saving Changes...' : 'Save Profile Changes'}</span>
             </button>
           </form>
-        </div>
 
-        {/* SIDEBAR: POINTS & PREVIOUS CAMPAIGNS */}
-        <div className="space-y-6">
-          {isBrand ? (
-            <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Buy Campaign Points</h3>
-              <p className="text-xs text-slate-400 mb-4">
-                Top up points to fund reward pools for your upcoming sponsor campaigns.
-              </p>
+          {/* RIGHT COL: POINTS TOP-UP & PORTFOLIO ACTION */}
+          <div className="space-y-6">
+            
+            {/* BRAND POINTS TOP UP CARD */}
+            {isBrand && (
+              <div className="bg-white border border-blue-200 rounded-3xl p-6 shadow-xl space-y-4 text-slate-900">
+                <h3 className="text-lg font-black text-slate-900">Purchase Escrow Points</h3>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium">
+                  Add points to your brand balance to launch new campaigns and escrow funds for creators.
+                </p>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount to Add</label>
+                <form onSubmit={handleTopUpPoints} className="space-y-3">
                   <select
                     value={topUpAmount}
-                    onChange={(e) => setTopUpAmount(parseInt(e.target.value, 10))}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-indigo-500"
+                    onChange={(e) => setTopUpAmount(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3 text-xs sm:text-sm font-black text-slate-900 focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value={500}>500 Points ($50)</option>
-                    <option value={1000}>1,000 Points ($100)</option>
-                    <option value={2500}>2,500 Points ($250)</option>
-                    <option value={5000}>5,000 Points ($500)</option>
+                    <option value="500">+500 PTS (Basic)</option>
+                    <option value="1000">+1,000 PTS (Standard)</option>
+                    <option value="2500">+2,500 PTS (Pro)</option>
+                    <option value="5000">+5,000 PTS (Enterprise)</option>
                   </select>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={handleTopUpPoints}
-                  disabled={saving}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  {saving ? 'Processing...' : `Purchase +${topUpAmount} Points`}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Creator Balance</h3>
-              <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800">
-                <span className="text-xs text-slate-400 block">Available Balance</span>
-                <span className="text-2xl font-bold text-emerald-400">{formData.points_balance} pts</span>
-              </div>
-            </div>
-          )}
-
-          {/* PREVIOUS CAMPAIGNS SECTION */}
-          <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-              <HistoryIcon className="w-5 h-5 text-indigo-400" />
-              <span>Previous Campaigns</span>
-            </h3>
-
-            {pastCampaigns.length === 0 ? (
-              <p className="text-xs text-slate-400">No previous campaign history found.</p>
-            ) : (
-              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1 scrollbar-none">
-                {pastCampaigns.slice(0, 5).map((item) => (
-                  <div key={item.id} className="bg-slate-900 p-3 rounded-xl border border-slate-700/60 text-xs">
-                    <h4 className="text-white font-semibold">{item.title || item.campaign_title}</h4>
-                    <p className="text-slate-400 text-[11px] mt-0.5">
-                      Status: <span className="text-indigo-400 capitalize">{item.status}</span> • Reward: {item.points_reward} pts
-                    </p>
-                  </div>
-                ))}
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+                  >
+                    {saving ? 'Processing...' : `Add +${topUpAmount} Points`}
+                  </button>
+                </form>
               </div>
             )}
+
+            {/* CREATOR DELIVERABLES PORTFOLIO DIRECT LINK */}
+            {!isBrand && (
+              <div className="bg-zinc-900 border border-red-500/30 rounded-3xl p-6 shadow-xl space-y-4 text-white animate-pulse-red-glow">
+                <h3 className="text-lg font-black text-white">Deliverables Portfolio</h3>
+                <p className="text-xs sm:text-sm text-zinc-300 font-medium">
+                  Showcase your past video submissions and brand 5-star ratings to potential sponsors.
+                </p>
+
+                <button
+                  onClick={() => navigate('/portfolio')}
+                  className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>View Public Portfolio</span>
+                </button>
+              </div>
+            )}
+
           </div>
+
         </div>
+
       </div>
     </div>
   );

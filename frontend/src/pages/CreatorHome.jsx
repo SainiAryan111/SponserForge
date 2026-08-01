@@ -99,7 +99,9 @@ export default function CreatorHome() {
                   <div>
                     <div className="flex justify-between items-start gap-2 mb-3">
                       <div>
-                        <span className="text-xs text-indigo-400 font-semibold uppercase tracking-wide">Brand: @{camp.brand_username}</span>
+                        <span className="text-xs text-indigo-400 font-semibold uppercase tracking-wide">
+                          🏢 Brand: {camp.brand_name || camp.brand_username} {camp.brand_username && camp.brand_name !== camp.brand_username ? `(@${camp.brand_username})` : ''}
+                        </span>
                         <h3 className="font-bold text-xl text-white mt-0.5">{camp.title}</h3>
                       </div>
                       {camp.similarity_score && (

@@ -72,6 +72,8 @@ export const getCampaignDetail = (id) => API.get(`campaigns/${id}/`);
 export const createCampaign = (data) => API.post('campaigns/', data);
 export const updateCampaign = (id, data) => API.put(`campaigns/${id}/`, data);
 export const deleteCampaign = (id) => API.delete(`campaigns/${id}/`);
+export const startCampaignInstantly = (id) => API.post(`campaigns/${id}/start-instantly/`);
+export const endCampaignInstantly = (id) => API.post(`campaigns/${id}/end-instantly/`);
 
 // ==========================================
 // AI VECTOR MATCHING
@@ -81,8 +83,8 @@ export const getCreatorsForCampaign = (campaignId) => API.get(`campaigns/${campa
 export const getCampaignsForCreator = (creatorId) => API.get(`creator/match-campaigns/${creatorId}/`);
 
 export const searchUsers = (params) => API.get('users/search/', { params });
-export const offerCampaign = (campaignId, creatorId) => 
-  API.post('applications/offer-campaign/', { campaign_id: campaignId, creator_id: creatorId });
+export const offerCampaign = (campaignId, creatorId, offerData = {}) => 
+  API.post('applications/offer-campaign/', { campaign_id: campaignId, creator_id: creatorId, ...offerData });
 
 export const acceptOffer = (applicationId) => 
   API.post(`applications/${applicationId}/accept-offer/`);
@@ -97,13 +99,13 @@ export const getApplications = () => API.get('applications/');
 export const applyToCampaign = (campaignId, pitch) => 
   API.post('applications/', { campaign: campaignId, pitch });
 
-export const acceptApplication = (applicationId) => 
-  API.post(`applications/${applicationId}/accept/`);
+export const acceptApplication = (applicationId, acceptData = {}) => 
+  API.post(`applications/${applicationId}/accept/`, acceptData);
 
 export const submitWork = (applicationId, submissionLink) => 
   API.post(`applications/${applicationId}/submit-work/`, { submission_link: submissionLink });
 
-export const completeAndPay = (applicationId) => 
-  API.post(`applications/${applicationId}/complete-and-pay/`);
+export const completeAndPay = (applicationId, payData = {}) => 
+  API.post(`applications/${applicationId}/complete-and-pay/`, payData);
 
 export default API;

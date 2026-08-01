@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { getApplications, getCampaigns } from '../services/api';
 import ApplicationActionCard from '../components/ApplicationActionCard';
-import { ArrowLeft, History as HistoryIcon, Filter } from 'lucide-react';
+import { ArrowLeft, History as HistoryIcon, Filter, Building2, Zap, Flame } from 'lucide-react';
 
 export default function HistoryPage() {
   const navigate = useNavigate();
@@ -34,8 +34,6 @@ export default function HistoryPage() {
     fetchData();
   }, []);
 
-  // Creator tabs: all, offered, applied (pending), successful (completed), rejected
-  // Brand tabs: all, offered, requested (pending), accepted, ready for payout (submitted)
   const filteredApplications = applications.filter((app) => {
     if (filterTab === 'all') return true;
     if (filterTab === 'offered') return app.status === 'offered';
@@ -49,150 +47,108 @@ export default function HistoryPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">
-        <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className={`min-h-screen flex items-center justify-center font-black text-base ${
+        isBrand ? 'bg-slate-50 text-slate-800' : 'bg-zinc-950 text-zinc-200'
+      }`}>
+        <span>Loading Campaign & Deal History...</span>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      {/* Back Button */}
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center space-x-2 text-slate-400 hover:text-white mb-6 font-medium transition cursor-pointer"
-      >
-        <ArrowLeft className="w-5 h-5" />
-        <span>Back to Dashboard</span>
-      </button>
+    <div className={`min-h-screen transition-colors duration-500 p-4 sm:p-8 space-y-6 ${
+      isBrand ? 'bg-slate-50 text-slate-900' : 'bg-zinc-950 text-white'
+    }`}>
+      <div className="max-w-6xl mx-auto space-y-6">
+        
+        {/* Back Button */}
+        <button
+          onClick={() => navigate(-1)}
+          className={`flex items-center space-x-2 text-xs sm:text-sm font-black transition cursor-pointer ${
+            isBrand ? 'text-slate-700 hover:text-slate-950' : 'text-zinc-300 hover:text-white'
+          }`}
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Dashboard</span>
+        </button>
 
-      {/* Header */}
-      <div className="mb-8 border-b border-slate-800 pb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600/20 text-indigo-400 p-3 rounded-xl border border-indigo-500/30">
-            <HistoryIcon className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-white">Campaign & Deal History</h1>
-            <p className="text-slate-400 text-sm">
-              Comprehensive log of all {isBrand ? 'brand offers, requests, & payouts' : 'applied, offered, & completed deals'}
+        {/* HEADER BAR */}
+        <div className={`rounded-3xl p-6 sm:p-8 shadow-xl border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
+          isBrand
+            ? 'bg-white border-blue-200 shadow-blue-500/5'
+            : 'bg-zinc-900/90 border-red-500/30 shadow-2xl shadow-red-950/50 animate-pulse-red-glow'
+        }`}>
+          <div className="space-y-2">
+            <div className={`inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-wider ${
+              isBrand ? 'bg-blue-100 text-blue-900 border border-blue-300' : 'bg-red-950/80 text-red-200 border border-red-500/40'
+            }`}>
+              {isBrand ? <Building2 className="w-4 h-4" /> : <Flame className="w-4 h-4 text-red-500" />}
+              <span>{isBrand ? 'Enterprise Campaign Log' : 'Creator Deal Ledger'}</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+              Campaign & Deal History
+            </h1>
+            <p className={`text-xs sm:text-sm font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-300'}`}>
+              Comprehensive history log of all {isBrand ? 'brand offers, payouts, and completed creator sponsorships' : 'applied, offered, and completed deliverable deals'}.
             </p>
           </div>
         </div>
-      </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center space-x-2 overflow-x-auto pb-3 mb-6 scrollbar-none">
-        <span className="text-slate-400 text-sm font-semibold flex items-center gap-1.5 mr-2">
-          <Filter className="w-4 h-4 text-indigo-400" />
-          Filter:
-        </span>
+        {/* FILTER TABS */}
+        <div className={`rounded-2xl p-2 border flex flex-wrap items-center gap-2 text-xs sm:text-sm font-black ${
+          isBrand ? 'bg-slate-100 border-slate-200' : 'bg-zinc-900 border-zinc-800'
+        }`}>
+          <span className={`px-2 flex items-center space-x-1 uppercase text-xs ${
+            isBrand ? 'text-slate-600' : 'text-zinc-400'
+          }`}>
+            <Filter className="w-4 h-4" />
+            <span>Filter Stage:</span>
+          </span>
 
-        {isBrand ? (
-          <>
+          {[
+            { key: 'all', label: 'All Deals' },
+            { key: 'offered', label: 'Direct Offers' },
+            { key: isBrand ? 'requested' : 'applied', label: isBrand ? 'Pending Requests' : 'My Applications' },
+            { key: 'accepted', label: 'In Progress' },
+            { key: 'submitted', label: 'In Review' },
+            { key: 'successful', label: 'Completed' },
+            { key: 'rejected', label: 'Rejected / Expired' },
+          ].map((tab) => (
             <button
-              onClick={() => setFilterTab('all')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
+              key={tab.key}
+              onClick={() => setFilterTab(tab.key)}
+              className={`px-4 py-2 rounded-xl transition cursor-pointer ${
+                filterTab === tab.key
+                  ? isBrand ? 'bg-blue-600 text-white shadow-md' : 'bg-red-600 text-white shadow-md'
+                  : isBrand ? 'text-slate-700 hover:text-slate-950 hover:bg-slate-200' : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
               }`}
             >
-              All Records ({applications.length})
+              {tab.label}
             </button>
-            <button
-              onClick={() => setFilterTab('offered')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'offered' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Offered ({applications.filter(a => a.status === 'offered').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('requested')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'requested' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Requested ({applications.filter(a => a.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('accepted')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'accepted' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Accepted ({applications.filter(a => a.status === 'accepted').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('submitted')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'submitted' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Ready for Payout ({applications.filter(a => a.status === 'submitted').length})
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => setFilterTab('all')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'all' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              All Records ({applications.length})
-            </button>
-            <button
-              onClick={() => setFilterTab('offered')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'offered' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Offered ({applications.filter(a => a.status === 'offered').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('applied')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'applied' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Applied ({applications.filter(a => a.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('successful')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'successful' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Successful ({applications.filter(a => a.status === 'completed').length})
-            </button>
-            <button
-              onClick={() => setFilterTab('rejected')}
-              className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
-                filterTab === 'rejected' ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              Rejected ({applications.filter(a => a.status === 'rejected').length})
-            </button>
-          </>
-        )}
-      </div>
+          ))}
+        </div>
 
-      {/* Application Cards Feed */}
-      <div className="space-y-4">
-        {filteredApplications.length === 0 ? (
-          <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-12 text-center text-slate-400">
-            <p className="text-base">No campaign records found in this category.</p>
-          </div>
-        ) : (
-          filteredApplications.map((app) => (
-            <ApplicationActionCard
-              key={app.id}
-              application={app}
-              userRole={isBrand ? 'brand' : 'creator'}
-              onUpdate={fetchData}
-            />
-          ))
-        )}
+        {/* APPLICATIONS LIST */}
+        <div className="space-y-4">
+          {filteredApplications.length === 0 ? (
+            <div className={`rounded-3xl p-8 text-center text-xs sm:text-sm font-bold border ${
+              isBrand ? 'bg-white border-blue-200 text-slate-500' : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+            }`}>
+              No historical deals found in this category.
+            </div>
+          ) : (
+            filteredApplications.map((app) => (
+              <ApplicationActionCard
+                key={app.id}
+                application={app}
+                userRole={isBrand ? 'brand' : 'creator'}
+                onUpdate={fetchData}
+              />
+            ))
+          )}
+        </div>
+
       </div>
     </div>
   );

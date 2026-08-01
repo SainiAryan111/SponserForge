@@ -18,9 +18,10 @@ class CreatorProfileSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'email', 'role', 'name', 'bio', 'niche',
             'primary_platform', 'platform_link', 'subscriber_count',
-            'engagement_rate', 'avatar_url', 'location', 'points_balance'
+            'engagement_rate', 'avatar_url', 'location', 'points_balance',
+            'rating', 'total_ratings_count', 'social_links', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'username', 'email', 'role', 'points_balance']
+        read_only_fields = ['id', 'username', 'email', 'role', 'points_balance', 'rating', 'total_ratings_count', 'created_at', 'updated_at']
 
 
 class BrandProfileSerializer(serializers.ModelSerializer):
@@ -33,9 +34,10 @@ class BrandProfileSerializer(serializers.ModelSerializer):
         model = BrandProfile
         fields = [
             'id', 'username', 'email', 'role', 'user_type', 'company_name',
-            'industry', 'website', 'logo_url', 'company_size', 'target_audience', 'points_balance'
+            'bio', 'industry', 'website', 'logo_url', 'company_size', 'target_audience', 
+            'location', 'social_links', 'points_balance', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'username', 'email', 'role', 'user_type', 'points_balance']
+        read_only_fields = ['id', 'username', 'email', 'role', 'user_type', 'points_balance', 'created_at', 'updated_at']
 
     def validate_website(self, value):
         if value and not (value.startswith('http://') or value.startswith('https://')):
@@ -45,7 +47,6 @@ class BrandProfileSerializer(serializers.ModelSerializer):
 
 class CreatorMatchSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField(source='user.username')
-    name = serializers.ReadOnlyField(source='name')
     similarity_score = serializers.FloatField(read_only=True, required=False)
 
     class Meta:
@@ -53,24 +54,35 @@ class CreatorMatchSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'name', 'bio', 'niche', 'primary_platform', 
             'subscriber_count', 'engagement_rate', 'avatar_url', 
-            'location', 'similarity_score'
+            'location', 'rating', 'total_ratings_count', 'social_links', 'similarity_score'
         ]
 
 
 class CampaignSerializer(serializers.ModelSerializer):
     brand_username = serializers.ReadOnlyField(source='brand_user.username')
+    brand_name = serializers.SerializerMethodField()
     accepted_count = serializers.SerializerMethodField()
     is_full = serializers.SerializerMethodField()
+    end_datetime = serializers.SerializerMethodField()
 
     class Meta:
         model = Campaign
         fields = [
-            'id', 'brand_user', 'brand_username', 'title', 'description', 
-            'points_reward', 'status', 'start_date', 'end_date', 'target_platform', 
-            'target_niche', 'min_subscribers_required', 'creators_needed', 
-            'accepted_count', 'is_full', 'created_at'
+            'id', 'brand_user', 'brand_username', 'brand_name', 'title', 'description', 
+            'deliverables_format', 'points_reward', 'status', 'start_datetime', 'duration_hours', 'end_datetime',
+            'target_platform', 'target_niche', 'min_subscribers_required', 'creators_needed', 
+            'accepted_count', 'is_full', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'brand_user', 'embedding', 'created_at']
+        read_only_fields = ['id', 'brand_user', 'embedding', 'created_at', 'updated_at']
+
+    def to_representation(self, instance):
+        instance.check_and_update_status()
+        return super().to_representation(instance)
+
+    def get_brand_name(self, obj):
+        if hasattr(obj.brand_user, 'brand_profile') and obj.brand_user.brand_profile and obj.brand_user.brand_profile.company_name:
+            return obj.brand_user.brand_profile.company_name
+        return obj.brand_user.username
 
     def get_accepted_count(self, obj):
         return obj.applications.filter(status__in=['accepted', 'submitted', 'completed']).count()
@@ -78,12 +90,10 @@ class CampaignSerializer(serializers.ModelSerializer):
     def get_is_full(self, obj):
         return self.get_accepted_count(obj) >= obj.creators_needed
 
-    def validate(self, data):
-        start = data.get('start_date')
-        end = data.get('end_date')
-        if start and end and end < start:
-            raise serializers.ValidationError({"end_date": "End date must be after or equal to start date."})
-        return data
+    def get_end_datetime(self, obj):
+        if obj.end_datetime:
+            return obj.end_datetime.isoformat()
+        return None
 
 
 class CampaignApplicationSerializer(serializers.ModelSerializer):
@@ -92,17 +102,36 @@ class CampaignApplicationSerializer(serializers.ModelSerializer):
     creator_niche = serializers.ReadOnlyField(source='creator.niche')
     creator_avatar = serializers.ReadOnlyField(source='creator.avatar_url')
     campaign_title = serializers.ReadOnlyField(source='campaign.title')
+    campaign_end_datetime = serializers.SerializerMethodField()
+    campaign_start_datetime = serializers.ReadOnlyField(source='campaign.start_datetime')
     points_reward = serializers.ReadOnlyField(source='campaign.points_reward')
     brand_username = serializers.ReadOnlyField(source='campaign.brand_user.username')
+    brand_name = serializers.SerializerMethodField()
 
     class Meta:
         model = CampaignApplication
         fields = [
-            'id', 'campaign', 'campaign_title', 'brand_username', 'creator', 
+            'id', 'campaign', 'campaign_title', 'campaign_end_datetime', 'campaign_start_datetime',
+            'brand_username', 'brand_name', 'creator', 
             'creator_username', 'creator_name', 'creator_niche', 'creator_avatar', 
-            'pitch', 'submission_link', 'status', 'points_reward', 'applied_at', 'updated_at'
+            'pitch', 'work_description', 'submission_deadline', 'submission_link', 
+            'rating', 'feedback', 'status', 'points_reward', 'applied_at', 'updated_at'
         ]
         read_only_fields = ['id', 'creator', 'applied_at', 'updated_at']
+
+    def to_representation(self, instance):
+        instance.check_and_update_deadline_status()
+        return super().to_representation(instance)
+
+    def get_campaign_end_datetime(self, obj):
+        if obj.campaign and obj.campaign.end_datetime:
+            return obj.campaign.end_datetime.isoformat()
+        return None
+
+    def get_brand_name(self, obj):
+        if hasattr(obj.campaign.brand_user, 'brand_profile') and obj.campaign.brand_user.brand_profile and obj.campaign.brand_user.brand_profile.company_name:
+            return obj.campaign.brand_user.brand_profile.company_name
+        return obj.campaign.brand_user.username
 
 
 class PointsTransactionSerializer(serializers.ModelSerializer):

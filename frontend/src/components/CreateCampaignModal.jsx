@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createCampaign } from '../services/api';
 
 export default function CreateCampaignModal({ isOpen, onClose, onCampaignCreated }) {
+  const [startMode, setStartMode] = useState('instant'); // 'instant' | 'scheduled'
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -10,23 +11,55 @@ export default function CreateCampaignModal({ isOpen, onClose, onCampaignCreated
     target_niche: 'tech',
     min_subscribers_required: 1000,
     creators_needed: 1,
+    start_datetime: '',
+    duration_hours: 24,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
+  const extractErrorMessage = (err) => {
+    if (!err.response) return err.message || 'Network error.';
+    const data = err.response.data;
+    if (!data) return 'Failed to create campaign.';
+    if (typeof data === 'string') return data;
+    if (data.error) return data.error;
+    if (data.detail) return data.detail;
+    if (typeof data === 'object') {
+      const messages = Object.entries(data).map(([field, errs]) => {
+        const msgStr = Array.isArray(errs) ? errs.join(', ') : String(errs);
+        return `${field}: ${msgStr}`;
+      });
+      return messages.join(' | ');
+    }
+    return 'Failed to create campaign.';
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
+    let isoStartDt = null;
+    if (startMode === 'scheduled' && formData.start_datetime) {
+      const parsedDt = new Date(formData.start_datetime);
+      if (!isNaN(parsedDt.getTime())) {
+        isoStartDt = parsedDt.toISOString();
+      }
+    }
+
     try {
-      const response = await createCampaign(formData);
+      const response = await createCampaign({
+        ...formData,
+        start_instantly: startMode === 'instant',
+        start_datetime: isoStartDt,
+        duration_hours: parseInt(formData.duration_hours || 24, 10),
+      });
       onCampaignCreated(response.data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create campaign.');
+      setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }

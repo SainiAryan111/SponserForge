@@ -1,6 +1,9 @@
+from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from django.contrib.auth import authenticate, get_user_model
-from django.db.models import Q
+from django.db.models import Q, Avg
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import api_view, permission_classes
@@ -64,7 +67,11 @@ def signup_view(request):
                 industry=data.get('industry', ''),
                 website=data.get('website'),
                 company_size=data.get('company_size'),
-                target_audience=data.get('target_audience')
+                target_audience=data.get('target_audience'),
+                bio=data.get('bio', ''),
+                location=data.get('location'),
+                logo_url=data.get('logo_url'),
+                social_links=data.get('social_links', {})
             )
         elif role == 'creator':
             bio = data.get('bio', '')
@@ -99,6 +106,8 @@ def signup_view(request):
                 subscriber_count=sub_count,
                 engagement_rate=eng_rate,
                 location=data.get('location'),
+                avatar_url=data.get('avatar_url'),
+                social_links=data.get('social_links', {}),
                 embedding=vector_embedding
             )
 
@@ -268,23 +277,49 @@ class MatchCreatorsForCampaignView(APIView):
     def get(self, request, campaign_id):
         campaign = get_object_or_404(Campaign, id=campaign_id)
 
+        # Auto-generate embedding if missing on campaign
         if not campaign.embedding:
-            return Response({"error": "Campaign embedding is missing."}, status=status.HTTP_400_BAD_REQUEST)
+            text_to_embed = f"{campaign.title}. {campaign.description}. Niche: {campaign.target_niche}"
+            campaign.embedding = embedding_model.encode(text_to_embed).tolist()
+            campaign.save(update_fields=['embedding'])
 
         filters = Q(subscriber_count__gte=campaign.min_subscribers_required)
         
         if campaign.target_platform:
             filters &= Q(primary_platform__iexact=campaign.target_platform)
 
-        matched_creators = (
+        # 1. Primary Vector Search (creators with embeddings)
+        matched_creators = list(
             CreatorProfile.objects
-            .filter(filters)
+            .filter(filters & Q(embedding__isnull=False))
             .annotate(distance=CosineDistance("embedding", campaign.embedding))
             .order_by("distance")[:10]
         )
 
+        # 2. Fallback Search if vector filter excludes creators
+        if not matched_creators:
+            matched_creators = list(
+                CreatorProfile.objects
+                .filter(filters)
+                .order_by("-subscriber_count")[:10]
+            )
+            if not matched_creators:
+                matched_creators = list(CreatorProfile.objects.all().order_by("-subscriber_count")[:10])
+
         for profile in matched_creators:
-            profile.similarity_score = round(1 - profile.distance, 4)
+            if hasattr(profile, 'distance') and profile.distance is not None:
+                raw_similarity = max(0.0, round(1 - profile.distance, 4))
+            else:
+                raw_similarity = 0.88  # Default match score for fallback criteria match
+
+            # Ingest Creator Brand Rating into overall AI Match Score (70% semantic vector + 30% rating weight)
+            rating_val = float(getattr(profile, 'rating', 5.0) or 5.0)
+            rating_factor = rating_val / 5.0
+            combined_score = round((raw_similarity * 0.70) + (rating_factor * 0.30), 4)
+            profile.similarity_score = min(1.0, max(0.1, combined_score))
+
+        # Sort matched creators by final rating-weighted match score descending
+        matched_creators.sort(key=lambda x: getattr(x, 'similarity_score', 0), reverse=True)
 
         serializer = CreatorMatchSerializer(matched_creators, many=True)
         return Response({
@@ -302,8 +337,8 @@ class MatchCampaignsForCreatorView(APIView):
     def get(self, request, creator_id):
         creator = get_object_or_404(CreatorProfile, id=creator_id)
 
-        # 1. Build initial requirement filters
-        filters = Q(min_subscribers_required__lte=creator.subscriber_count)
+        # 1. Build initial requirement filters (active campaigns only)
+        filters = Q(status='active') & Q(min_subscribers_required__lte=creator.subscriber_count)
         
         if creator.primary_platform:
             filters &= Q(target_platform__iexact=creator.primary_platform)
@@ -322,7 +357,7 @@ class MatchCampaignsForCreatorView(APIView):
         # 3. FALLBACK: If subscriber/platform filters exclude everything
         # or no vector matches are found, return recent active campaigns
         if not matched_campaigns:
-            matched_campaigns = list(Campaign.objects.all().order_by('-created_at')[:10])
+            matched_campaigns = list(Campaign.objects.filter(status='active').order_by('-created_at')[:10])
 
         # 4. Serialize and attach similarity scores safely
         results = []
@@ -455,20 +490,42 @@ class CampaignViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if getattr(user, 'role', '') == 'brand':
-            return Campaign.objects.filter(brand_user=user).order_by('-created_at')
-        return Campaign.objects.all().order_by('-created_at')
+            qs = Campaign.objects.filter(brand_user=user)
+        else:
+            qs = Campaign.objects.all()
+        
+        # Check and refresh status lifecycle for campaigns
+        for campaign in qs:
+            campaign.check_and_update_status()
+
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         title = serializer.validated_data.get('title', '')
         description = serializer.validated_data.get('description', '')
         niche = serializer.validated_data.get('target_niche', '')
-        
+        start_dt = serializer.validated_data.get('start_datetime')
+        start_instantly = self.request.data.get('start_instantly', False)
+
+        now = timezone.now()
+        initial_status = 'active'
+
+        if start_instantly or not start_dt:
+            start_dt = now
+            initial_status = 'active'
+        elif start_dt > now:
+            initial_status = 'scheduled'
+        else:
+            initial_status = 'active'
+
         text_to_embed = f"{title}. {description}. Niche: {niche}"
         vector = embedding_model.encode(text_to_embed).tolist()
 
         serializer.save(
             brand_user=self.request.user,
-            embedding=vector
+            embedding=vector,
+            start_datetime=start_dt,
+            status=initial_status
         )
 
     def perform_update(self, serializer):
@@ -480,6 +537,34 @@ class CampaignViewSet(viewsets.ModelViewSet):
         vector = embedding_model.encode(text_to_embed).tolist()
 
         serializer.save(embedding=vector)
+
+    @action(detail=True, methods=['post'], url_path='start-instantly')
+    def start_instantly(self, request, pk=None):
+        campaign = self.get_object()
+        if campaign.brand_user != request.user:
+            return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+        
+        campaign.start_datetime = timezone.now()
+        campaign.status = 'active'
+        campaign.save()
+        return Response({
+            "message": f"Campaign '{campaign.title}' has been launched instantly!",
+            "campaign": CampaignSerializer(campaign).data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='end-instantly')
+    def end_instantly(self, request, pk=None):
+        campaign = self.get_object()
+        if campaign.brand_user != request.user:
+            return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+        
+        campaign.status = 'completed'
+        campaign.save()
+        campaign.applications.filter(status__in=['pending', 'offered']).update(status='rejected')
+        return Response({
+            "message": f"Campaign '{campaign.title}' has been ended instantly.",
+            "campaign": CampaignSerializer(campaign).data
+        }, status=status.HTTP_200_OK)
 
 
 class CampaignApplicationViewSet(viewsets.ModelViewSet):
@@ -500,13 +585,9 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         creator_profile = getattr(self.request.user, 'creator_profile')
         campaign = serializer.validated_data.get('campaign')
 
-        # Capacity Check: Check if campaign slots are already full
-        accepted_count = CampaignApplication.objects.filter(
-            campaign=campaign,
-            status__in=['accepted', 'submitted', 'completed']
-        ).count()
-        if accepted_count >= campaign.creators_needed:
-            raise PermissionDenied("This campaign has already filled all available creator positions.")
+        # Capacity Check: Check if campaign slots are already full or campaign completed
+        if campaign.status == 'completed' or campaign.check_and_update_status():
+            raise PermissionDenied("This campaign has already filled all available creator positions and is completed.")
 
         serializer.save(creator=creator_profile)
 
@@ -517,6 +598,9 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         
         campaign_id = request.data.get('campaign_id')
         creator_id = request.data.get('creator_id')
+        work_description = request.data.get('work_description', '')
+        deadline_raw = request.data.get('submission_deadline')
+        deadline_hours = request.data.get('deadline_hours')
 
         if not campaign_id or not creator_id:
             return Response({"error": "campaign_id and creator_id are required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -524,17 +608,38 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         campaign = get_object_or_404(Campaign, id=campaign_id, brand_user=request.user)
         creator_profile = get_object_or_404(CreatorProfile, id=creator_id)
 
+        if campaign.status == 'completed' or campaign.check_and_update_status():
+            return Response({"error": "This campaign has already filled all available creator positions and is completed."}, status=status.HTTP_400_BAD_REQUEST)
+
+        submission_deadline = None
+        if deadline_raw:
+            submission_deadline = parse_datetime(deadline_raw)
+        if not submission_deadline and deadline_hours:
+            try:
+                submission_deadline = timezone.now() + timedelta(hours=int(deadline_hours))
+            except (ValueError, TypeError):
+                pass
+
         # Check existing application
         application, created = CampaignApplication.objects.get_or_create(
             campaign=campaign,
             creator=creator_profile,
-            defaults={'status': 'offered', 'pitch': 'Direct campaign offer from brand.'}
+            defaults={
+                'status': 'offered',
+                'pitch': 'Direct campaign offer from brand.',
+                'work_description': work_description,
+                'submission_deadline': submission_deadline,
+            }
         )
 
         if not created:
             if application.status in ['accepted', 'submitted', 'completed']:
                 return Response({"error": "Creator is already hired for this campaign."}, status=status.HTTP_400_BAD_REQUEST)
             application.status = 'offered'
+            if work_description:
+                application.work_description = work_description
+            if submission_deadline:
+                application.submission_deadline = submission_deadline
             application.save()
 
         return Response({
@@ -554,13 +659,8 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
             return Response({"error": "Application can only be accepted if in pending or offered state."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Capacity check
-        accepted_count = CampaignApplication.objects.filter(
-            campaign=campaign,
-            status__in=['accepted', 'submitted', 'completed']
-        ).count()
-
-        if accepted_count >= campaign.creators_needed:
-            return Response({"error": "Campaign has already filled all available creator positions."}, status=status.HTTP_400_BAD_REQUEST)
+        if campaign.status == 'completed' or campaign.check_and_update_status():
+            return Response({"error": "Campaign has already filled all available creator positions and is completed."}, status=status.HTTP_400_BAD_REQUEST)
 
         brand_profile = getattr(request.user, 'brand_profile', None)
         if not brand_profile:
@@ -571,20 +671,36 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
                 "error": f"Insufficient points balance. You need {campaign.points_reward} pts, but only have {brand_profile.points_balance} pts."
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        work_description = request.data.get('work_description')
+        deadline_raw = request.data.get('submission_deadline')
+        deadline_hours = request.data.get('deadline_hours')
+
+        if work_description:
+            application.work_description = work_description
+
+        submission_deadline = None
+        if deadline_raw:
+            submission_deadline = parse_datetime(deadline_raw)
+        if not submission_deadline and deadline_hours:
+            try:
+                submission_deadline = timezone.now() + timedelta(hours=int(deadline_hours))
+            except (ValueError, TypeError):
+                pass
+
+        if submission_deadline:
+            application.submission_deadline = submission_deadline
+
         application.status = 'accepted'
         application.save()
 
-        accepted_count += 1
+        # Update campaign status and auto-reject remaining applicants if full
+        campaign_ended = campaign.check_and_update_status()
 
-        # First-Come First-Served Race Condition logic:
-        # If slots are now full, automatically reject remaining pending/offered applications!
-        if accepted_count >= campaign.creators_needed:
-            CampaignApplication.objects.filter(
-                campaign=campaign,
-                status__in=['pending', 'offered']
-            ).exclude(id=application.id).update(status='rejected')
+        msg = "Application accepted! Creator is hired."
+        if campaign_ended:
+            msg += " All required slots are filled so the campaign has automatically ended."
 
-        return Response({"message": "Application accepted! Creator is hired."}, status=status.HTTP_200_OK)
+        return Response({"message": msg}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='accept-offer')
     def accept_offer(self, request, pk=None):
@@ -598,12 +714,7 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
             return Response({"error": "No pending offer found for this application."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Capacity check
-        accepted_count = CampaignApplication.objects.filter(
-            campaign=campaign,
-            status__in=['accepted', 'submitted', 'completed']
-        ).count()
-
-        if accepted_count >= campaign.creators_needed:
+        if campaign.status == 'completed' or campaign.check_and_update_status():
             application.status = 'rejected'
             application.save()
             return Response({"error": "Sorry, all positions for this campaign have already been filled by other creators."}, status=status.HTTP_400_BAD_REQUEST)
@@ -611,16 +722,14 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         application.status = 'accepted'
         application.save()
 
-        accepted_count += 1
+        # Update campaign status and auto-reject remaining applicants if full
+        campaign_ended = campaign.check_and_update_status()
 
-        # If campaign slots are now full, auto-reject remaining pending/offered applicants
-        if accepted_count >= campaign.creators_needed:
-            CampaignApplication.objects.filter(
-                campaign=campaign,
-                status__in=['pending', 'offered']
-            ).exclude(id=application.id).update(status='rejected')
+        msg = "Offer accepted! You are hired for this campaign."
+        if campaign_ended:
+            msg += " All required slots are filled so the campaign has automatically ended."
 
-        return Response({"message": "Offer accepted! You are hired for this campaign."}, status=status.HTTP_200_OK)
+        return Response({"message": msg}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='reject')
     def reject_application(self, request, pk=None):
@@ -641,8 +750,14 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         if application.creator.user != request.user:
             return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
 
+        # Enforce automatic rejection if deadline has expired
+        if application.check_and_update_deadline_status():
+            return Response({
+                "error": "The submission deadline for this work assignment has passed. The application has automatically expired and been rejected."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if application.status != 'accepted':
-            return Response({"error": "Work can only be submitted for accepted campaigns."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Work can only be submitted for accepted campaigns in progress."}, status=status.HTTP_400_BAD_REQUEST)
 
         submission_link = request.data.get('submission_link')
         if not submission_link:
@@ -671,6 +786,16 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         if application.status != 'submitted':
             return Response({"error": "Work must be submitted by the creator before completion."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Parse Rating & Optional Feedback from Brand
+        rating_input = request.data.get('rating', 5)
+        feedback_input = request.data.get('feedback', '')
+
+        try:
+            rating_val = int(rating_input)
+            rating_val = max(1, min(5, rating_val))
+        except (ValueError, TypeError):
+            rating_val = 5
+
         try:
             with transaction.atomic():
                 brand_profile.refresh_from_db()
@@ -681,10 +806,28 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
                 brand_profile.save()
 
                 creator.points_balance += points
-                creator.save()
 
                 application.status = 'completed'
+                application.rating = rating_val
+                application.feedback = feedback_input
                 application.save()
+
+                # Recalculate average rating for CreatorProfile
+                completed_apps = CampaignApplication.objects.filter(creator=creator, status='completed', rating__isnull=False)
+                if completed_apps.exists():
+                    avg_val = completed_apps.aggregate(Avg('rating'))['rating__avg']
+                    creator.rating = round(float(avg_val), 2)
+                    creator.total_ratings_count = completed_apps.count()
+                else:
+                    creator.rating = float(rating_val)
+                    creator.total_ratings_count = 1
+
+                # Re-generate Creator embedding incorporating rating & feedback history
+                text_to_embed = f"{creator.niche}. {creator.bio or ''}. Rating: {creator.rating} stars out of 5 across {creator.total_ratings_count} completed deals."
+                if hasattr(embedding_model, 'encode'):
+                    creator.embedding = embedding_model.encode(text_to_embed).tolist()
+
+                creator.save()
 
                 PointsTransaction.objects.create(
                     brand=brand_profile,
@@ -695,8 +838,10 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
                 )
 
             return Response({
-                "message": f"Campaign completed! Transferred {points} points to {creator.user.username}.",
-                "brand_remaining_points": brand_profile.points_balance
+                "message": f"Campaign completed! Rated creator {rating_val} ⭐ and transferred {points} points to {creator.user.username}.",
+                "brand_remaining_points": brand_profile.points_balance,
+                "creator_new_rating": creator.rating,
+                "creator_total_ratings": creator.total_ratings_count
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
@@ -710,20 +855,26 @@ class UserSearchAndSortView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        query = request.query_params.get('q', '').strip()
+        raw_query = request.query_params.get('q', '').strip()
+        clean_q = raw_query.lstrip('@').strip()
+        q_underscore = clean_q.replace(' ', '_')
+        q_space = clean_q.replace('_', ' ')
+        q_words = [w for w in clean_q.replace('_', ' ').split() if len(w) > 0]
+        
         role_filter = request.query_params.get('role', '').strip()
         industry_filter = request.query_params.get('industry', '').strip()
         niche_filter = request.query_params.get('niche', '').strip()
         platform_filter = request.query_params.get('platform', '').strip()
         ordering = request.query_params.get('ordering', '').strip()
 
-        # Attribute filter & sorting role scoping
-        if niche_filter or platform_filter or ordering in ['subscriber_count', '-subscriber_count', 'engagement_rate', '-engagement_rate']:
-            if not role_filter:
-                role_filter = 'creator'
-        elif industry_filter or ordering in ['company_size_asc', 'company_size_desc']:
-            if not role_filter:
-                role_filter = 'brand'
+        # Attribute filter & sorting role scoping ONLY if search text is empty
+        if not clean_q:
+            if niche_filter or platform_filter or ordering in ['subscriber_count', '-subscriber_count', 'engagement_rate', '-engagement_rate', 'rating', '-rating']:
+                if not role_filter:
+                    role_filter = 'creator'
+            elif industry_filter or ordering in ['company_size_asc', 'company_size_desc', 'company_size', '-company_size']:
+                if not role_filter:
+                    role_filter = 'brand'
 
         users_data = []
 
@@ -731,17 +882,43 @@ class UserSearchAndSortView(APIView):
         if role_filter in ['', 'creator']:
             creators_qs = CreatorProfile.objects.select_related('user').all()
 
-            if query:
-                creators_qs = creators_qs.filter(
-                    Q(user__username__icontains=query) | 
-                    Q(name__icontains=query) |
-                    Q(bio__icontains=query)
+            if clean_q:
+                direct_q = (
+                    Q(user__username__iexact=clean_q) |
+                    Q(user__username__iexact=q_underscore) |
+                    Q(user__username__icontains=clean_q) |
+                    Q(user__username__icontains=q_underscore) |
+                    Q(user__email__iexact=clean_q) |
+                    Q(name__icontains=clean_q) |
+                    Q(name__icontains=q_space)
                 )
 
-            if niche_filter:
-                creators_qs = creators_qs.filter(niche__icontains=niche_filter)
-            if platform_filter:
-                creators_qs = creators_qs.filter(primary_platform__icontains=platform_filter)
+                word_q = Q()
+                for w in q_words:
+                    word_q &= (
+                        Q(user__username__icontains=w) |
+                        Q(user__email__icontains=w) |
+                        Q(name__icontains=w) |
+                        Q(niche__icontains=w) |
+                        Q(primary_platform__icontains=w) |
+                        Q(bio__icontains=w)
+                    )
+
+                # Direct identity matches bypass dropdown niche/platform filters
+                if niche_filter or platform_filter:
+                    filtered_q = direct_q | (word_q & (
+                        Q(niche__icontains=niche_filter) if niche_filter else Q()
+                    ) & (
+                        Q(primary_platform__icontains=platform_filter) if platform_filter else Q()
+                    ))
+                    creators_qs = creators_qs.filter(filtered_q)
+                else:
+                    creators_qs = creators_qs.filter(direct_q | word_q)
+            else:
+                if niche_filter:
+                    creators_qs = creators_qs.filter(niche__icontains=niche_filter)
+                if platform_filter:
+                    creators_qs = creators_qs.filter(primary_platform__icontains=platform_filter)
 
             if ordering == 'subscriber_count':
                 creators_qs = creators_qs.order_by('subscriber_count')
@@ -751,8 +928,12 @@ class UserSearchAndSortView(APIView):
                 creators_qs = creators_qs.order_by('engagement_rate')
             elif ordering == '-engagement_rate':
                 creators_qs = creators_qs.order_by('-engagement_rate')
+            elif ordering == 'rating':
+                creators_qs = creators_qs.order_by('rating')
+            elif ordering == '-rating':
+                creators_qs = creators_qs.order_by('-rating')
             else:
-                creators_qs = creators_qs.order_by('-subscriber_count')
+                creators_qs = creators_qs.order_by('-rating', '-subscriber_count')
 
             for c in creators_qs:
                 users_data.append({
@@ -770,22 +951,46 @@ class UserSearchAndSortView(APIView):
                     "engagement_rate": float(c.engagement_rate or 0),
                     "avatar_url": c.avatar_url,
                     "location": c.location,
-                    "points_balance": c.points_balance
+                    "social_links": c.social_links or {},
+                    "points_balance": c.points_balance,
+                    "rating": float(getattr(c, 'rating', 5.0) or 5.0),
+                    "total_ratings_count": getattr(c, 'total_ratings_count', 0),
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
                 })
 
         # Brands Query
         if role_filter in ['', 'brand']:
             brands_qs = BrandProfile.objects.select_related('user').all()
 
-            if query:
-                brands_qs = brands_qs.filter(
-                    Q(user__username__icontains=query) | 
-                    Q(company_name__icontains=query) |
-                    Q(industry__icontains=query)
+            if clean_q:
+                direct_brand_q = (
+                    Q(user__username__iexact=clean_q) |
+                    Q(user__username__iexact=q_underscore) |
+                    Q(user__username__icontains=clean_q) |
+                    Q(user__username__icontains=q_underscore) |
+                    Q(user__email__iexact=clean_q) |
+                    Q(company_name__icontains=clean_q) |
+                    Q(company_name__icontains=q_space)
                 )
 
-            if industry_filter:
-                brands_qs = brands_qs.filter(industry__icontains=industry_filter)
+                word_brand_q = Q()
+                for w in q_words:
+                    word_brand_q &= (
+                        Q(user__username__icontains=w) |
+                        Q(user__email__icontains=w) |
+                        Q(company_name__icontains=w) |
+                        Q(industry__icontains=w) |
+                        Q(bio__icontains=w)
+                    )
+
+                if industry_filter:
+                    filtered_b = direct_brand_q | (word_brand_q & Q(industry__icontains=industry_filter))
+                    brands_qs = brands_qs.filter(filtered_b)
+                else:
+                    brands_qs = brands_qs.filter(direct_brand_q | word_brand_q)
+            else:
+                if industry_filter:
+                    brands_qs = brands_qs.filter(industry__icontains=industry_filter)
 
             brand_list = []
             for b in brands_qs:
@@ -804,18 +1009,22 @@ class UserSearchAndSortView(APIView):
                     "email": b.user.email,
                     "role": "brand",
                     "company_name": b.company_name,
+                    "bio": b.bio,
                     "industry": b.industry,
                     "website": b.website,
                     "logo_url": b.logo_url,
                     "company_size": b.company_size,
                     "size_rank": size_rank,
                     "target_audience": b.target_audience,
-                    "points_balance": b.points_balance
+                    "location": b.location,
+                    "social_links": b.social_links or {},
+                    "points_balance": b.points_balance,
+                    "created_at": b.created_at.isoformat() if b.created_at else None,
                 })
 
-            if ordering == 'company_size_asc':
+            if ordering in ['company_size_asc', 'company_size']:
                 brand_list.sort(key=lambda x: x['size_rank'])
-            elif ordering == 'company_size_desc':
+            elif ordering in ['company_size_desc', '-company_size']:
                 brand_list.sort(key=lambda x: x['size_rank'], reverse=True)
 
             users_data.extend(brand_list)
