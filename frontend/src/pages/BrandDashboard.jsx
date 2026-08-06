@@ -7,6 +7,7 @@ import CampaignCountdown from '../components/CampaignCountdown';
 import CampaignDetailsModal from '../components/CampaignDetailsModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { Building2, Plus, Sparkles, Clock, CheckCircle2, Award, Zap, ShieldCheck, Square } from 'lucide-react';
+import { resolveImageUrl } from '../utils/imageUtils';
 
 export default function BrandDashboard() {
   const navigate = useNavigate();
@@ -60,11 +61,17 @@ export default function BrandDashboard() {
   };
 
   const filteredApplications = applications.filter((app) => {
+    const isExpired = app.status === 'expired' ||
+      (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+      (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
+
     if (activeTab === 'pending') return app.status === 'pending';
-    if (activeTab === 'offered') return app.status === 'offered';
-    if (activeTab === 'accepted') return app.status === 'accepted';
+    if (activeTab === 'offered') return app.status === 'offered' && !isExpired;
+    if (activeTab === 'accepted') return app.status === 'accepted' && !isExpired;
     if (activeTab === 'submitted') return app.status === 'submitted';
     if (activeTab === 'completed') return app.status === 'completed';
+    if (activeTab === 'rejected') return app.status === 'rejected';
+    if (activeTab === 'expired') return isExpired;
     return true;
   });
 
@@ -96,8 +103,16 @@ export default function BrandDashboard() {
             <span>Brand Hub</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-            {profile?.company_name || profile?.username}'s Dashboard
+          <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight flex items-center space-x-3">
+            {resolveImageUrl(profile?.logo_url) ? (
+              <img
+                src={resolveImageUrl(profile.logo_url)}
+                alt={profile?.company_name || profile?.username}
+                className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-cover border border-blue-200 shadow-md shrink-0"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            ) : null}
+            <span>{profile?.company_name || profile?.username}'s Dashboard</span>
           </h1>
 
           <p className="text-slate-500 text-sm max-w-xl font-medium">
@@ -261,7 +276,9 @@ export default function BrandDashboard() {
             { key: 'offered', label: 'Direct Offers' },
             { key: 'accepted', label: 'In Progress' },
             { key: 'submitted', label: 'Ready for Payout' },
-            { key: 'completed', label: 'Completed' }
+            { key: 'completed', label: 'Completed' },
+            { key: 'rejected', label: 'Rejected' },
+            { key: 'expired', label: 'Expired' }
           ].map((tab) => (
             <button
               key={tab.key}
@@ -332,21 +349,36 @@ export default function BrandDashboard() {
       />
 
       {/* CONFIRM END CAMPAIGN ALERT BOX */}
-      <ConfirmModal
-        isOpen={Boolean(campaignToEnd)}
-        title="Confirm End Campaign"
-        message={`Are you sure you want to end "${campaignToEnd?.title}" immediately? It will no longer accept new submissions.`}
-        confirmText="Yes, End Campaign"
-        cancelText="Cancel"
-        variant="danger"
-        onConfirm={() => {
-          if (campaignToEnd) {
-            handleEndInstantly(campaignToEnd.id);
-            setCampaignToEnd(null);
-          }
-        }}
-        onCancel={() => setCampaignToEnd(null)}
-      />
+      {(() => {
+        const workingApps = campaignToEnd
+          ? applications.filter(a => a.campaign === campaignToEnd.id && (a.status === 'accepted' || a.status === 'submitted'))
+          : [];
+        const names = workingApps.map(a => `@${a.creator_username || a.creator_name}`).filter(Boolean);
+        const abcCreators = names.join(', ');
+        const totalPoints = workingApps.length * (campaignToEnd?.points_reward || 0);
+
+        const endMsg = workingApps.length > 0
+          ? `${abcCreators} creator(s) are currently working on this "${campaignToEnd?.title}" campaign. If you end the campaign now, you will lose ${totalPoints} points (creators will receive their ${totalPoints} points immediately without review). Are you sure you want to end this campaign?`
+          : `Are you sure you want to end "${campaignToEnd?.title}" immediately? It will no longer accept new submissions.`;
+
+        return (
+          <ConfirmModal
+            isOpen={Boolean(campaignToEnd)}
+            title="Confirm End Campaign"
+            message={endMsg}
+            confirmText="Yes, End Campaign & Payout"
+            cancelText="Cancel"
+            variant="danger"
+            onConfirm={() => {
+              if (campaignToEnd) {
+                handleEndInstantly(campaignToEnd.id);
+                setCampaignToEnd(null);
+              }
+            }}
+            onCancel={() => setCampaignToEnd(null)}
+          />
+        );
+      })()}
 
     </div>
   );

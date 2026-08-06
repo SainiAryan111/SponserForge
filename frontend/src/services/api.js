@@ -61,7 +61,8 @@ API.interceptors.response.use(
 // ==========================================
 export const signup = (data) => API.post('auth/signup/', data);
 export const login = (data) => API.post('auth/login/', data);
-export const getUserProfile = () => API.get('auth/profile/');
+export const googleAuth = (data) => API.post('auth/google/', data);
+export const getUserProfile = (username) => API.get('auth/profile/', { params: username ? { username } : {} });
 export const updateUserProfile = (data) => API.put('auth/profile/', data);
 
 // ==========================================
@@ -96,6 +97,7 @@ export const rejectApplication = (applicationId) =>
 // CAMPAIGN APPLICATIONS & PAYOUT LIFECYCLE
 // ==========================================
 export const getApplications = () => API.get('applications/');
+export const getApplicationDetail = (id) => API.get(`applications/${id}/`);
 export const applyToCampaign = (campaignId, pitch) => 
   API.post('applications/', { campaign: campaignId, pitch });
 
@@ -107,5 +109,8 @@ export const submitWork = (applicationId, submissionLink) =>
 
 export const completeAndPay = (applicationId, payData = {}) => 
   API.post(`applications/${applicationId}/complete-and-pay/`, payData);
+
+export const rejectSubmittedWork = (applicationId, rejectionReason) => 
+  API.post(`applications/${applicationId}/reject-work/`, { rejection_reason: rejectionReason });
 
 export default API;

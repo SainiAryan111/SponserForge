@@ -8,6 +8,7 @@ from .views import (
     UserProfileView,
     signup_view,
     login_view,
+    google_auth_view,
     MatchCreatorsForCampaignView,
     MatchCreatorsView,
     MatchCampaignsForCreatorView,
@@ -25,6 +26,7 @@ urlpatterns = [
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/signup/', signup_view, name='api_signup'),
     path('auth/login/', login_view, name='api_login'),
+    path('auth/google/', google_auth_view, name='google_auth'),
     path('auth/profile/', UserProfileView.as_view(), name='profile'),
 
     path('users/search/', UserSearchAndSortView.as_view(), name='user_search'),

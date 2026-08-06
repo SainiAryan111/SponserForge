@@ -105,7 +105,7 @@ export default function PreviousWorkPage() {
               <span className="text-xs uppercase font-black text-amber-400 block">Creator Rating</span>
               <div className="flex items-center space-x-1 text-amber-300 font-black text-lg sm:text-xl">
                 <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-                <span>{profile?.rating ? Number(profile.rating).toFixed(1) : '5.0'}</span>
+                <span>{(profile?.total_ratings_count > 0 && profile?.rating != null) ? Number(profile.rating).toFixed(1) : '0.0'}</span>
                 <span className="text-xs text-zinc-400 font-semibold">({profile?.total_ratings_count || 0})</span>
               </div>
             </div>

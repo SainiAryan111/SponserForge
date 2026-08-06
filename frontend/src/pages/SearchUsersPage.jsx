@@ -138,11 +138,15 @@ export default function SearchUsersPage() {
     }
   }, [isBrand]);
 
+  const activeBrandCampaigns = brandCampaigns.filter((c) => c.status === 'active');
+
   const handleOpenOfferModal = (creator) => {
     setSelectedCreator(creator);
     setOfferSuccess('');
-    if (brandCampaigns.length > 0) {
-      setSelectedCampaignId(brandCampaigns[0].id);
+    if (activeBrandCampaigns.length > 0) {
+      setSelectedCampaignId(activeBrandCampaigns[0].id);
+    } else {
+      setSelectedCampaignId('');
     }
   };
 
@@ -150,7 +154,8 @@ export default function SearchUsersPage() {
     if (!selectedCampaignId || !selectedCreator) return;
     setOffering(true);
     try {
-      await offerCampaign(selectedCampaignId, selectedCreator.user_id);
+      const creatorProfileId = selectedCreator.id || selectedCreator.user_id;
+      await offerCampaign(selectedCampaignId, creatorProfileId);
       setOfferSuccess(`Direct campaign offer sent to @${selectedCreator.username}!`);
       setTimeout(() => {
         setSelectedCreator(null);
@@ -474,14 +479,21 @@ export default function SearchUsersPage() {
                     {item.role === 'creator' && (
                       <div className="flex items-center space-x-1 text-amber-400 text-xs sm:text-sm font-black">
                         <Star className="w-4 h-4 fill-amber-400" />
-                        <span>{item.rating ? Number(item.rating).toFixed(1) : '5.0'} ({item.total_ratings_count || 0})</span>
+                        <span>{item.total_ratings_count > 0 ? Number(item.rating || 0).toFixed(1) : '0.0'} ({item.total_ratings_count || 0})</span>
                       </div>
                     )}
                   </div>
 
                   <div className="space-y-1">
                     <h3 className="font-black text-lg sm:text-xl flex items-center space-x-2">
-                      <span>@{item.username}</span>
+                      <button
+                        onClick={() => navigate(`/profile/${item.username}`)}
+                        className={`hover:underline cursor-pointer flex items-center space-x-1.5 ${
+                          isBrand ? 'text-blue-700 hover:text-blue-900' : 'text-red-400 hover:text-red-300'
+                        }`}
+                      >
+                        <span>@{item.username}</span>
+                      </button>
                       {item.name && <span className="text-xs sm:text-sm font-semibold text-slate-500">({item.name})</span>}
                     </h3>
                     {item.bio && (
@@ -545,26 +557,26 @@ export default function SearchUsersPage() {
               <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-4 rounded-2xl text-xs sm:text-sm font-black text-center">
                 {offerSuccess}
               </div>
-            ) : brandCampaigns.length === 0 ? (
+            ) : activeBrandCampaigns.length === 0 ? (
               <div className="space-y-4 text-center py-4">
-                <p className="text-xs sm:text-sm text-slate-600 font-bold">You don't have any active campaigns to offer right now.</p>
+                <p className="text-xs sm:text-sm text-slate-600 font-bold">You don't have any active running campaigns to offer right now.</p>
                 <button
                   onClick={() => navigate('/campaign/create')}
-                  className="bg-blue-600 text-white text-xs sm:text-sm font-black px-5 py-2.5 rounded-xl"
+                  className="bg-blue-600 text-white text-xs sm:text-sm font-black px-5 py-2.5 rounded-xl transition hover:bg-blue-700 cursor-pointer"
                 >
-                  Create New Campaign First
+                  + Launch New Campaign First
                 </button>
               </div>
             ) : (
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-black text-slate-800 uppercase tracking-wider block mb-1">Select Campaign</label>
+                  <label className="text-xs font-black text-slate-800 uppercase tracking-wider block mb-1">Select Active Campaign</label>
                   <select
                     value={selectedCampaignId}
                     onChange={(e) => setSelectedCampaignId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3 text-xs sm:text-sm font-black text-slate-900 focus:ring-2 focus:ring-blue-500"
                   >
-                    {brandCampaigns.map((camp) => (
+                    {activeBrandCampaigns.map((camp) => (
                       <option key={camp.id} value={camp.id}>
                         {camp.title} ({camp.points_reward} pts)
                       </option>

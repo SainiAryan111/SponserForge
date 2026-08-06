@@ -5,6 +5,7 @@ import ApplicationActionCard from '../components/ApplicationActionCard';
 import CampaignCountdown from '../components/CampaignCountdown';
 import CampaignDetailsModal from '../components/CampaignDetailsModal';
 import { Star, Zap, Search, ShieldCheck, Sparkles, Send, Flame } from 'lucide-react';
+import { resolveImageUrl } from '../utils/imageUtils';
 
 export default function CreatorDashboard() {
   const navigate = useNavigate();
@@ -18,6 +19,23 @@ export default function CreatorDashboard() {
   const [selectedDetailCampaign, setSelectedDetailCampaign] = useState(null);
   const [pitch, setPitch] = useState('');
   const [applying, setApplying] = useState(false);
+  const [activeTab, setActiveTab] = useState('active');
+
+  const filteredApplications = myApplications.filter((app) => {
+    const isExpired = app.status === 'expired' ||
+      (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+      (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
+
+    if (activeTab === 'active') return app.status !== 'completed' && app.status !== 'rejected' && !isExpired;
+    if (activeTab === 'pending') return app.status === 'pending';
+    if (activeTab === 'offered') return app.status === 'offered' && !isExpired;
+    if (activeTab === 'accepted') return app.status === 'accepted' && !isExpired;
+    if (activeTab === 'submitted') return app.status === 'submitted';
+    if (activeTab === 'completed') return app.status === 'completed';
+    if (activeTab === 'rejected') return app.status === 'rejected';
+    if (activeTab === 'expired') return isExpired;
+    return true;
+  });
 
   const fetchData = async () => {
     try {
@@ -84,8 +102,16 @@ export default function CreatorDashboard() {
             <span>Creator Dashboard</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-            Welcome back, @{profile?.username}
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight flex items-center space-x-3">
+            {resolveImageUrl(profile?.avatar_url) ? (
+              <img
+                src={resolveImageUrl(profile.avatar_url)}
+                alt={profile?.name || profile?.username}
+                className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-cover border border-red-500/40 shadow-md shrink-0"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            ) : null}
+            <span>Welcome back, @{profile?.username}</span>
           </h1>
 
           <p className="text-zinc-400 text-sm max-w-xl font-medium">
@@ -109,7 +135,7 @@ export default function CreatorDashboard() {
             <span className="text-[10px] uppercase font-bold text-amber-400 block">Rating Score</span>
             <div className="flex items-center justify-center space-x-1 font-black text-amber-300 text-sm">
               <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-              <span>{profile?.rating ? Number(profile.rating).toFixed(1) : '5.0'}</span>
+              <span>{(profile?.total_ratings_count > 0 && profile?.rating != null) ? Number(profile.rating).toFixed(1) : '0.0'}</span>
               <span className="text-[10px] text-zinc-500 font-normal">({profile?.total_ratings_count || 0})</span>
             </div>
           </div>
@@ -209,25 +235,49 @@ export default function CreatorDashboard() {
       {/* 3. MY APPLICATIONS & DELIVERABLES PIPELINE */}
       <section className="bg-zinc-900/90 border border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-extrabold text-white">My Applications & Active Deliverables</h2>
+          <h2 className="text-xl font-extrabold text-white">My Applications & Deliverables</h2>
+        </div>
+
+        {/* Pipeline Tab Bar */}
+        <div className="flex flex-wrap gap-2 bg-zinc-950 p-1.5 rounded-2xl border border-zinc-800">
+          {[
+            { key: 'active', label: 'All Active' },
+            { key: 'pending', label: 'Pending Applications' },
+            { key: 'offered', label: 'Direct Offers' },
+            { key: 'accepted', label: 'In Progress' },
+            { key: 'submitted', label: 'Submitted' },
+            { key: 'completed', label: 'Completed' },
+            { key: 'rejected', label: 'Rejected' },
+            { key: 'expired', label: 'Expired' }
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                activeTab === tab.key
+                  ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         <div className="space-y-4">
-          {myApplications.filter(app => app.status !== 'completed' && app.status !== 'rejected').length === 0 ? (
+          {filteredApplications.length === 0 ? (
             <div className="p-8 text-center text-zinc-500 text-xs font-semibold">
-              No active applications or deliverables at this moment.
+              No applications or deliverables found in this category.
             </div>
           ) : (
-            myApplications
-              .filter(app => app.status !== 'completed' && app.status !== 'rejected')
-              .map((app) => (
-                <ApplicationActionCard
-                  key={app.id}
-                  application={app}
-                  userRole="creator"
-                  onUpdate={fetchData}
-                />
-              ))
+            filteredApplications.map((app) => (
+              <ApplicationActionCard
+                key={app.id}
+                application={app}
+                userRole="creator"
+                onUpdate={fetchData}
+              />
+            ))
           )}
         </div>
       </section>

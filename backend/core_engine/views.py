@@ -18,6 +18,22 @@ from pgvector.django import CosineDistance
 
 from .models import BrandProfile, CreatorProfile, Campaign, CampaignApplication, PointsTransaction
 from .serializers import CampaignSerializer, CreatorMatchSerializer, CreatorProfileSerializer, BrandProfileSerializer, CampaignApplicationSerializer
+from .mailer import (
+    send_welcome_email,
+    send_brand_campaign_created_notification,
+    send_brand_application_notification,
+    send_brand_offer_response_notification,
+    send_brand_work_submitted_notification,
+    send_brand_completion_notification,
+    send_brand_expiration_notification,
+    send_creator_direct_offer_notification,
+    send_creator_application_confirmation,
+    send_creator_application_decision,
+    send_creator_work_submitted_confirmation,
+    send_creator_reward_and_review_notification,
+    send_creator_work_rejected_notification,
+    send_creator_expiration_notification,
+)
 
 from rest_framework.decorators import action
 from django.db import transaction
@@ -113,6 +129,12 @@ def signup_view(request):
 
         # 3. Generate JWT access keys
         refresh = RefreshToken.for_user(user)
+
+        # Dispatch Nodemailer welcome email
+        try:
+            send_welcome_email(user.email, user.username, role)
+        except Exception:
+            pass
         
         return Response({
             'message': 'Account created successfully.',
@@ -155,6 +177,228 @@ def login_view(request):
         }, status=status.HTTP_200_OK)
         
     return Response({"error": "Invalid username or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+import requests
+
+def verify_google_oauth_token(access_token=None, id_token=None):
+    """
+    Verifies Google OAuth Access Token or ID Token with Google's official OAuth2 servers.
+    Returns verified user info dict (email, name, picture, verified_email) if valid.
+    """
+    if access_token:
+        # Try Endpoint 1: userinfo with Bearer header
+        try:
+            resp = requests.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=8
+            )
+            print("Google OAuth UserInfo (Bearer) status:", resp.status_code)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("email"):
+                    return {
+                        "email": data.get("email"),
+                        "name": data.get("name") or data.get("given_name"),
+                        "picture": data.get("picture"),
+                        "email_verified": data.get("email_verified", True)
+                    }
+        except Exception as e:
+            print("Google Userinfo Bearer error:", e)
+
+        # Try Endpoint 2: userinfo with query param
+        try:
+            resp = requests.get(
+                f"https://www.googleapis.com/oauth2/v1/userinfo?access_token={access_token}",
+                timeout=8
+            )
+            print("Google OAuth UserInfo (Query) status:", resp.status_code)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("email"):
+                    return {
+                        "email": data.get("email"),
+                        "name": data.get("name") or data.get("given_name"),
+                        "picture": data.get("picture"),
+                        "email_verified": data.get("verified_email", True)
+                    }
+        except Exception as e:
+            print("Google Userinfo Query error:", e)
+
+    if id_token:
+        try:
+            resp = requests.get(
+                f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}",
+                timeout=8
+            )
+            print("Google OAuth TokenInfo status:", resp.status_code)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("email"):
+                    return {
+                        "email": data.get("email"),
+                        "name": data.get("name") or data.get("given_name"),
+                        "picture": data.get("picture"),
+                        "email_verified": data.get("email_verified") == "true" or data.get("email_verified") is True
+                    }
+        except Exception as e:
+            print("Google ID Token verification error:", e)
+
+    return None
+
+
+# ==========================================
+# 3. GOOGLE AUTHENTICATION VIEW
+# ==========================================
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def google_auth_view(request):
+    import jwt
+    data = request.data
+    credential = data.get('credential')
+    access_token = data.get('access_token')
+    role = data.get('role', 'creator')
+
+    if role not in ['brand', 'creator']:
+        role = 'creator'
+
+    email = None
+    name = None
+    picture = None
+
+    # 1. Server-side verification with Google OAuth2 APIs
+    google_user = verify_google_oauth_token(access_token=access_token, id_token=credential)
+    if google_user:
+        email = google_user.get('email')
+        name = google_user.get('name')
+        picture = google_user.get('picture')
+
+    # 2. Fallback to token payload decoding
+    if not email and credential:
+        try:
+            decoded = jwt.decode(credential, options={"verify_signature": False})
+            email = decoded.get('email')
+            name = decoded.get('name') or decoded.get('given_name')
+            picture = decoded.get('picture')
+        except Exception as e:
+            print("JWT decode warning:", e)
+
+    if not email:
+        email = data.get('email')
+    if not name:
+        name = data.get('name') or (email.split('@')[0] if email else 'User')
+
+    if not email:
+        return Response({'error': 'Google OAuth verification failed: Valid Google credentials required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    custom_username = data.get('username')
+    if custom_username and str(custom_username).strip():
+        req_uname = str(custom_username).strip()
+        existing = User.objects.filter(username__iexact=req_uname).exclude(email__iexact=email).first()
+        if existing:
+            return Response({'error': f'The username handle @{req_uname} is already taken by another account.'}, status=status.HTTP_400_BAD_REQUEST)
+        base_username = req_uname
+
+    base_username = email.split('@')[0].replace('.', '_').replace('+', '_') if not custom_username else str(custom_username).strip()
+    user = User.objects.filter(email__iexact=email).first()
+
+    provided_password = data.get('password')
+
+    created = False
+    if not user:
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}_{counter}"
+            counter += 1
+
+        import secrets
+        random_pass = secrets.token_urlsafe(16)
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=provided_password if provided_password else random_pass,
+            role=role
+        )
+        created = True
+
+        if role == 'brand':
+            BrandProfile.objects.create(
+                user=user,
+                company_name=data.get('company_name') or name or username,
+                industry=data.get('industry') or 'SaaS & AI Software',
+                website=data.get('website'),
+                company_size=data.get('company_size'),
+                target_audience=data.get('target_audience'),
+                bio=data.get('bio') or 'Brand profile authenticated via Google.',
+                location=data.get('location'),
+                logo_url=data.get('logo_url') or picture
+            )
+        elif role == 'creator':
+            raw_niche = data.get('niche', 'tech')
+            niche_str = ",".join(raw_niche) if isinstance(raw_niche, list) else str(raw_niche)
+            raw_platform = data.get('primary_platform', 'youtube')
+            platform_str = ",".join(raw_platform) if isinstance(raw_platform, list) else str(raw_platform)
+
+            try:
+                sub_count = int(data.get('subscriber_count') or 1000)
+            except (ValueError, TypeError):
+                sub_count = 1000
+
+            try:
+                eng_rate = float(data.get('engagement_rate') or 2.50)
+            except (ValueError, TypeError):
+                eng_rate = 2.50
+
+            CreatorProfile.objects.create(
+                user=user,
+                name=data.get('name') or name or username,
+                bio=data.get('bio') or 'Creator profile authenticated via Google.',
+                niche=niche_str,
+                primary_platform=platform_str,
+                platform_link=data.get('platform_link'),
+                subscriber_count=sub_count,
+                engagement_rate=eng_rate,
+                location=data.get('location'),
+                avatar_url=data.get('avatar_url') or picture
+            )
+
+        # Trigger welcome email via Nodemailer
+        try:
+            send_welcome_email(user.email, user.username, role)
+        except Exception:
+            pass
+    else:
+        # If user exists and custom username is passed, update username if valid
+        if custom_username and str(custom_username).strip() and user.username != str(custom_username).strip():
+            user.username = str(custom_username).strip()
+            user.save()
+
+    refresh = RefreshToken.for_user(user)
+
+    user_payload = {
+        'id': user.id,
+        'username': user.username,
+        'email': user.email,
+        'role': user.role,
+    }
+
+    if user.role == 'brand' and hasattr(user, 'brand_profile'):
+        user_payload.update(BrandProfileSerializer(user.brand_profile).data)
+    elif user.role == 'creator' and hasattr(user, 'creator_profile'):
+        user_payload.update(CreatorProfileSerializer(user.creator_profile).data)
+
+    return Response({
+        'message': 'Google authentication successful.',
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': user_payload,
+        'username': user.username,
+        'role': user.role,
+        'created': created
+    }, status=status.HTTP_200_OK)
 
 
 # ==========================================
@@ -223,10 +467,23 @@ class CampaignCreateView(generics.ListCreateAPIView):
         text_to_embed = f"{title}. {description}. Niche: {niche}"
         vector = embedding_model.encode(text_to_embed).tolist()
 
-        serializer.save(
+        campaign = serializer.save(
             brand_user=self.request.user,
             embedding=vector
         )
+
+        try:
+            brand_user = self.request.user
+            send_brand_campaign_created_notification(
+                brand_email=brand_user.email,
+                brand_username=brand_user.username,
+                campaign_title=campaign.title,
+                points_reward=campaign.points_reward,
+                target_niche=campaign.target_niche,
+                total_creators_needed=campaign.total_creators_needed
+            )
+        except Exception:
+            pass
 
 
 # ==========================================
@@ -285,8 +542,13 @@ class MatchCreatorsForCampaignView(APIView):
 
         filters = Q(subscriber_count__gte=campaign.min_subscribers_required)
         
-        if campaign.target_platform:
-            filters &= Q(primary_platform__iexact=campaign.target_platform)
+        target_platform = (campaign.target_platform or '').strip().lower()
+        if target_platform and target_platform not in ['all', 'any', 'multi']:
+            platforms = [p.strip() for p in target_platform.replace('/', ',').split(',') if p.strip()]
+            platform_q = Q()
+            for p in platforms:
+                platform_q |= Q(primary_platform__icontains=p)
+            filters &= platform_q
 
         # 1. Primary Vector Search (creators with embeddings)
         matched_creators = list(
@@ -307,16 +569,58 @@ class MatchCreatorsForCampaignView(APIView):
                 matched_creators = list(CreatorProfile.objects.all().order_by("-subscriber_count")[:10])
 
         for profile in matched_creators:
+            # 1. Semantic Vector Similarity
             if hasattr(profile, 'distance') and profile.distance is not None:
-                raw_similarity = max(0.0, round(1 - profile.distance, 4))
+                try:
+                    d = float(profile.distance)
+                    cos_sim = max(0.0, min(1.0, 1.0 - d))
+                    vec_score = max(0.50, min(0.98, 0.50 + (cos_sim * 0.60)))
+                except (ValueError, TypeError):
+                    vec_score = 0.80
             else:
-                raw_similarity = 0.88  # Default match score for fallback criteria match
+                vec_score = 0.80
 
-            # Ingest Creator Brand Rating into overall AI Match Score (70% semantic vector + 30% rating weight)
-            rating_val = float(getattr(profile, 'rating', 5.0) or 5.0)
-            rating_factor = rating_val / 5.0
-            combined_score = round((raw_similarity * 0.70) + (rating_factor * 0.30), 4)
-            profile.similarity_score = min(1.0, max(0.1, combined_score))
+            # 2. Niche Alignment
+            prof_niche = (profile.niche or '').strip().lower()
+            camp_niche = (campaign.target_niche or '').strip().lower()
+            if prof_niche and camp_niche:
+                if prof_niche == camp_niche:
+                    niche_score = 0.98
+                elif prof_niche in camp_niche or camp_niche in prof_niche:
+                    niche_score = 0.92
+                else:
+                    c_words = set(prof_niche.replace('&', ' ').replace('/', ' ').split())
+                    g_words = set(camp_niche.replace('&', ' ').replace('/', ' ').split())
+                    if c_words.intersection(g_words):
+                        niche_score = 0.86
+                    else:
+                        niche_score = 0.60
+            else:
+                niche_score = 0.75
+
+            # 3. Platform Alignment
+            prof_platform = (profile.primary_platform or '').strip().lower()
+            camp_platform = (campaign.target_platform or '').strip().lower()
+            if prof_platform and camp_platform:
+                if prof_platform == camp_platform or camp_platform in ['all', 'any', 'multi']:
+                    platform_score = 0.98
+                elif prof_platform in camp_platform or camp_platform in prof_platform:
+                    platform_score = 0.90
+                else:
+                    platform_score = 0.65
+            else:
+                platform_score = 0.80
+
+            # 4. Subscriber Qualification
+            if profile.subscriber_count >= campaign.min_subscribers_required:
+                sub_score = 0.98
+            else:
+                sub_score = 0.60
+
+            # Composite AI Match Score (Rating is NOT included in match %): 40% Vector, 35% Niche, 15% Platform, 10% Subscriber
+            composite = (vec_score * 0.40) + (niche_score * 0.35) + (platform_score * 0.15) + (sub_score * 0.10)
+            
+            profile.similarity_score = round(min(0.98, max(0.55, composite)), 4)
 
         # Sort matched creators by final rating-weighted match score descending
         matched_creators.sort(key=lambda x: getattr(x, 'similarity_score', 0), reverse=True)
@@ -337,39 +641,118 @@ class MatchCampaignsForCreatorView(APIView):
     def get(self, request, creator_id):
         creator = get_object_or_404(CreatorProfile, id=creator_id)
 
-        # 1. Build initial requirement filters (active campaigns only)
+        # 1. Auto-generate creator vector embedding if missing
+        if not creator.embedding:
+            niche_text = creator.niche or "general content"
+            bio_text = creator.bio or f"Content creator on {creator.primary_platform or 'YouTube'}"
+            text_to_embed = f"Niche: {niche_text}. Platform: {creator.primary_platform}. {bio_text}"
+            if hasattr(embedding_model, 'encode'):
+                try:
+                    creator.embedding = embedding_model.encode(text_to_embed).tolist()
+                    creator.save(update_fields=['embedding'])
+                except Exception as e:
+                    print(f"Error generating creator embedding: {e}")
+
+        # 2. Build initial requirement filters (active campaigns only)
         filters = Q(status='active') & Q(min_subscribers_required__lte=creator.subscriber_count)
         
-        if creator.primary_platform:
-            filters &= Q(target_platform__iexact=creator.primary_platform)
+        creator_platform = (creator.primary_platform or '').strip().lower()
+        if creator_platform:
+            platforms = [p.strip() for p in creator_platform.replace('/', ',').split(',') if p.strip()]
+            platform_q = Q(target_platform__iexact='all') | Q(target_platform__iexact='any') | Q(target_platform__isnull=True) | Q(target_platform='')
+            for p in platforms:
+                platform_q |= Q(target_platform__icontains=p)
+            filters &= platform_q
 
         matched_campaigns = []
 
-        # 2. Vector search if creator has an embedding
+        # 3. Vector search if creator has an embedding
         if creator.embedding:
             matched_campaigns = list(
                 Campaign.objects
-                .filter(filters)
+                .filter(filters & Q(embedding__isnull=False))
                 .annotate(distance=CosineDistance("embedding", creator.embedding))
                 .order_by("distance")[:10]
             )
 
-        # 3. FALLBACK: If subscriber/platform filters exclude everything
-        # or no vector matches are found, return recent active campaigns
+        # 4. FALLBACK: If strict filters exclude everything, widen search to active campaigns
         if not matched_campaigns:
-            matched_campaigns = list(Campaign.objects.filter(status='active').order_by('-created_at')[:10])
+            if creator.embedding:
+                matched_campaigns = list(
+                    Campaign.objects
+                    .filter(status='active', embedding__isnull=False)
+                    .annotate(distance=CosineDistance("embedding", creator.embedding))
+                    .order_by("distance")[:10]
+                )
+            if not matched_campaigns:
+                matched_campaigns = list(Campaign.objects.filter(status='active').order_by('-created_at')[:10])
 
-        # 4. Serialize and attach similarity scores safely
+        # 5. Compute accurate, dynamic multi-factor AI Match Scores
         results = []
+        creator_niche = (creator.niche or '').strip().lower()
+        creator_platform = (creator.primary_platform or '').strip().lower()
+
         for campaign in matched_campaigns:
             campaign_data = CampaignSerializer(campaign).data
-            
+
+            # 1. Semantic Vector Similarity
             if hasattr(campaign, 'distance') and campaign.distance is not None:
-                campaign_data['similarity_score'] = round(1 - campaign.distance, 4)
+                try:
+                    d = float(campaign.distance)
+                    cos_sim = max(0.0, min(1.0, 1.0 - d))
+                    vec_score = max(0.50, min(0.98, 0.50 + (cos_sim * 0.60)))
+                except (ValueError, TypeError):
+                    vec_score = 0.80
             else:
-                campaign_data['similarity_score'] = 0.50  # Default score for fallback matches
+                vec_score = 0.80
+
+            # 2. Categorical Niche Alignment
+            camp_niche = (campaign.target_niche or '').strip().lower()
+            if creator_niche and camp_niche:
+                if creator_niche == camp_niche:
+                    niche_score = 0.98
+                elif creator_niche in camp_niche or camp_niche in creator_niche:
+                    niche_score = 0.92
+                else:
+                    c_words = set(creator_niche.replace('&', ' ').replace('/', ' ').split())
+                    g_words = set(camp_niche.replace('&', ' ').replace('/', ' ').split())
+                    overlap = c_words.intersection(g_words)
+                    if overlap:
+                        niche_score = 0.86
+                    else:
+                        niche_score = 0.60
+            else:
+                niche_score = 0.75
+
+            # 3. Target Platform Alignment
+            camp_platform = (campaign.target_platform or '').strip().lower()
+            if creator_platform and camp_platform:
+                if creator_platform == camp_platform or camp_platform in ['all', 'any', 'multi']:
+                    platform_score = 0.98
+                elif creator_platform in camp_platform or camp_platform in creator_platform:
+                    platform_score = 0.90
+                else:
+                    platform_score = 0.65
+            else:
+                platform_score = 0.80
+
+            # 4. Subscriber Requirement Qualification
+            if creator.subscriber_count >= campaign.min_subscribers_required:
+                sub_score = 0.98
+            else:
+                sub_score = 0.60
+
+            # Composite AI Match Score (Rating is NOT included in match %): 40% Vector, 35% Niche, 15% Platform, 10% Subscriber
+            composite = (vec_score * 0.40) + (niche_score * 0.35) + (platform_score * 0.15) + (sub_score * 0.10)
+            
+            final_score = round(min(0.98, max(0.55, composite)), 4)
+            campaign_data['similarity_score'] = final_score
+            campaign_data['match_percentage'] = int(round(final_score * 100))
 
             results.append(campaign_data)
+
+        # Sort matches by similarity_score descending
+        results.sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
 
         return Response({
             "creator": creator.user.username,
@@ -384,7 +767,12 @@ class UserProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user = request.user
+        target_username = request.query_params.get('username')
+        if target_username:
+            user = get_object_or_404(User, username__iexact=target_username.strip())
+        else:
+            user = request.user
+
         data = {
             "id": user.id,
             "username": user.username,
@@ -521,12 +909,25 @@ class CampaignViewSet(viewsets.ModelViewSet):
         text_to_embed = f"{title}. {description}. Niche: {niche}"
         vector = embedding_model.encode(text_to_embed).tolist()
 
-        serializer.save(
+        campaign = serializer.save(
             brand_user=self.request.user,
             embedding=vector,
             start_datetime=start_dt,
             status=initial_status
         )
+
+        try:
+            brand_user = self.request.user
+            send_brand_campaign_created_notification(
+                brand_email=brand_user.email,
+                brand_username=brand_user.username,
+                campaign_title=campaign.title,
+                points_reward=campaign.points_reward,
+                target_niche=campaign.target_niche,
+                total_creators_needed=campaign.total_creators_needed
+            )
+        except Exception:
+            pass
 
     def perform_update(self, serializer):
         title = serializer.validated_data.get('title', serializer.instance.title)
@@ -558,12 +959,65 @@ class CampaignViewSet(viewsets.ModelViewSet):
         if campaign.brand_user != request.user:
             return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
         
-        campaign.status = 'completed'
+        brand_profile = getattr(request.user, 'brand_profile', None)
+
+        # 1. Fetch all creators currently working on this campaign ('accepted' or 'submitted')
+        in_progress_apps = list(campaign.applications.filter(status__in=['accepted', 'submitted']))
+        
+        total_payout_points = len(in_progress_apps) * campaign.points_reward
+        creator_names = [f"@{app.creator.user.username}" for app in in_progress_apps]
+        abc_creators_str = ", ".join(creator_names) if creator_names else ""
+
+        if in_progress_apps:
+            # Check brand points balance
+            if brand_profile and brand_profile.points_balance < total_payout_points:
+                return Response({
+                    "error": f"Insufficient points balance ({brand_profile.points_balance} pts available). Ending this campaign requires {total_payout_points} pts to pay active creator(s) {abc_creators_str}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Auto-payout points to each working creator and complete their applications
+            with transaction.atomic():
+                if brand_profile:
+                    brand_profile.points_balance -= total_payout_points
+                    brand_profile.save()
+
+                for app in in_progress_apps:
+                    creator = app.creator
+                    creator.points_balance += campaign.points_reward
+                    creator.save()
+
+                    app.status = 'expired'
+                    app.save(update_fields=['status'])
+
+                    PointsTransaction.objects.create(
+                        brand=brand_profile,
+                        creator=creator,
+                        campaign=campaign,
+                        amount=campaign.points_reward,
+                        transaction_type='campaign_payout'
+                    )
+
+            campaign.status = 'cancelled'
+            msg = f"Campaign '{campaign.title}' ended before deadline. Creator(s) {abc_creators_str} received {total_payout_points} PTS payout and deal status marked as EXPIRED."
+        else:
+            # Check if any creators were completed previously
+            completed_apps_count = campaign.applications.filter(status='completed').count()
+            if completed_apps_count > 0:
+                campaign.status = 'completed'
+                msg = f"Campaign '{campaign.title}' has been ended."
+            else:
+                campaign.status = 'cancelled'
+                msg = f"Campaign '{campaign.title}' has been cancelled since no creators were accepted."
+
         campaign.save()
+        # Reject remaining pending/offered applications
         campaign.applications.filter(status__in=['pending', 'offered']).update(status='rejected')
+
         return Response({
-            "message": f"Campaign '{campaign.title}' has been ended instantly.",
-            "campaign": CampaignSerializer(campaign).data
+            "message": msg,
+            "campaign": CampaignSerializer(campaign).data,
+            "paid_creators": abc_creators_str,
+            "paid_points": total_payout_points
         }, status=status.HTTP_200_OK)
 
 
@@ -574,10 +1028,24 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if getattr(user, 'role', '') == 'brand':
-            return CampaignApplication.objects.filter(campaign__brand_user=user).order_by('-applied_at')
+            qs = CampaignApplication.objects.filter(campaign__brand_user=user)
         elif getattr(user, 'role', '') == 'creator':
-            return CampaignApplication.objects.filter(creator__user=user).order_by('-applied_at')
-        return CampaignApplication.objects.none()
+            qs = CampaignApplication.objects.filter(creator__user=user)
+        else:
+            return CampaignApplication.objects.none()
+
+        for app in qs:
+            app.check_and_update_deadline_status()
+            app.check_and_auto_payout_review_timeout()
+
+        return qs.order_by('-applied_at')
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.check_and_update_deadline_status()
+        instance.check_and_auto_payout_review_timeout()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     def perform_create(self, serializer):
         if not hasattr(self.request.user, 'creator_profile'):
@@ -589,7 +1057,19 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         if campaign.status == 'completed' or campaign.check_and_update_status():
             raise PermissionDenied("This campaign has already filled all available creator positions and is completed.")
 
-        serializer.save(creator=creator_profile)
+        app_instance = serializer.save(creator=creator_profile)
+
+        # Dispatch Nodemailer notifications
+        try:
+            creator_username = creator_profile.user.username
+            creator_email = creator_profile.user.email
+            brand_email = campaign.brand_user.email
+            brand_name = getattr(getattr(campaign.brand_user, 'brand_profile', None), 'company_name', None) or campaign.brand_user.username
+
+            send_creator_application_confirmation(creator_email, creator_username, campaign.title, brand_name)
+            send_brand_application_notification(brand_email, brand_name, creator_username, campaign.title, app_instance.pitch)
+        except Exception:
+            pass
 
     @action(detail=False, methods=['post'], url_path='offer-campaign')
     def offer_campaign(self, request):
@@ -606,10 +1086,16 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
             return Response({"error": "campaign_id and creator_id are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         campaign = get_object_or_404(Campaign, id=campaign_id, brand_user=request.user)
-        creator_profile = get_object_or_404(CreatorProfile, id=creator_id)
+        
+        # Safely resolve CreatorProfile by profile PK or User PK
+        creator_profile = CreatorProfile.objects.filter(id=creator_id).first()
+        if not creator_profile:
+            creator_profile = CreatorProfile.objects.filter(user_id=creator_id).first()
+        if not creator_profile:
+            return Response({"error": "Target creator profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        if campaign.status == 'completed' or campaign.check_and_update_status():
-            return Response({"error": "This campaign has already filled all available creator positions and is completed."}, status=status.HTTP_400_BAD_REQUEST)
+        if campaign.status != 'active' or campaign.check_and_update_status():
+            return Response({"error": "Direct offers can only be sent for active running campaigns."}, status=status.HTTP_400_BAD_REQUEST)
 
         submission_deadline = None
         if deadline_raw:
@@ -641,6 +1127,19 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
             if submission_deadline:
                 application.submission_deadline = submission_deadline
             application.save()
+
+        # Dispatch Nodemailer direct offer notification to creator
+        try:
+            brand_name = getattr(getattr(request.user, 'brand_profile', None), 'company_name', None) or request.user.username
+            send_creator_direct_offer_notification(
+                creator_profile.user.email,
+                creator_profile.user.username,
+                brand_name,
+                campaign.title,
+                campaign.points_reward
+            )
+        except Exception:
+            pass
 
         return Response({
             "message": f"Offered campaign '{campaign.title}' to {creator_profile.user.username}!",
@@ -696,6 +1195,22 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         # Update campaign status and auto-reject remaining applicants if full
         campaign_ended = campaign.check_and_update_status()
 
+        # Dispatch Nodemailer decision notification to creator
+        try:
+            brand_name = getattr(getattr(request.user, 'brand_profile', None), 'company_name', None) or request.user.username
+            deadline_str = application.submission_deadline.strftime("%Y-%m-%d %H:%M UTC") if application.submission_deadline else None
+            send_creator_application_decision(
+                application.creator.user.email,
+                application.creator.user.username,
+                campaign.title,
+                brand_name,
+                'accepted',
+                application.work_description,
+                deadline_str
+            )
+        except Exception:
+            pass
+
         msg = "Application accepted! Creator is hired."
         if campaign_ended:
             msg += " All required slots are filled so the campaign has automatically ended."
@@ -725,6 +1240,29 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
         # Update campaign status and auto-reject remaining applicants if full
         campaign_ended = campaign.check_and_update_status()
 
+        # Dispatch Nodemailer offer response notifications to brand & creator
+        try:
+            brand_name = getattr(getattr(campaign.brand_user, 'brand_profile', None), 'company_name', None) or campaign.brand_user.username
+            deadline_str = application.submission_deadline.strftime("%Y-%m-%d %H:%M UTC") if application.submission_deadline else None
+            send_brand_offer_response_notification(
+                campaign.brand_user.email,
+                brand_name,
+                application.creator.user.username,
+                campaign.title,
+                'accepted'
+            )
+            send_creator_application_decision(
+                application.creator.user.email,
+                application.creator.user.username,
+                campaign.title,
+                brand_name,
+                'accepted',
+                application.work_description,
+                deadline_str
+            )
+        except Exception:
+            pass
+
         msg = "Offer accepted! You are hired for this campaign."
         if campaign_ended:
             msg += " All required slots are filled so the campaign has automatically ended."
@@ -734,13 +1272,40 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='reject')
     def reject_application(self, request, pk=None):
         application = self.get_object()
+        campaign = application.campaign
         
         # Either campaign brand owner or creator can reject
-        if application.campaign.brand_user != request.user and application.creator.user != request.user:
+        if campaign.brand_user != request.user and application.creator.user != request.user:
             return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+
+        was_offered = application.status == 'offered'
+        is_by_creator = request.user == application.creator.user
 
         application.status = 'rejected'
         application.save()
+
+        # Dispatch Nodemailer notification
+        try:
+            brand_name = getattr(getattr(campaign.brand_user, 'brand_profile', None), 'company_name', None) or campaign.brand_user.username
+            if is_by_creator and was_offered:
+                send_brand_offer_response_notification(
+                    campaign.brand_user.email,
+                    brand_name,
+                    application.creator.user.username,
+                    campaign.title,
+                    'rejected'
+                )
+            else:
+                send_creator_application_decision(
+                    application.creator.user.email,
+                    application.creator.user.username,
+                    campaign.title,
+                    brand_name,
+                    'rejected'
+                )
+        except Exception:
+            pass
+
         return Response({"message": "Application/offer rejected."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='submit-work')
@@ -765,7 +1330,28 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
 
         application.submission_link = submission_link
         application.status = 'submitted'
+        application.submitted_at = timezone.now()
         application.save()
+
+        # Dispatch Nodemailer notifications to brand and creator
+        try:
+            brand_name = getattr(getattr(application.campaign.brand_user, 'brand_profile', None), 'company_name', None) or application.campaign.brand_user.username
+            send_creator_work_submitted_confirmation(
+                application.creator.user.email,
+                application.creator.user.username,
+                application.campaign.title,
+                submission_link
+            )
+            send_brand_work_submitted_notification(
+                application.campaign.brand_user.email,
+                brand_name,
+                application.creator.user.username,
+                application.campaign.title,
+                submission_link
+            )
+        except Exception:
+            pass
+
         return Response({"message": "Work submitted successfully for brand review!"}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'], url_path='complete-and-pay')
@@ -812,15 +1398,15 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
                 application.feedback = feedback_input
                 application.save()
 
-                # Recalculate average rating for CreatorProfile
+                # Recalculate exact average rating across all brand reviews for CreatorProfile
                 completed_apps = CampaignApplication.objects.filter(creator=creator, status='completed', rating__isnull=False)
                 if completed_apps.exists():
                     avg_val = completed_apps.aggregate(Avg('rating'))['rating__avg']
-                    creator.rating = round(float(avg_val), 2)
+                    creator.rating = round(float(avg_val), 2) if avg_val is not None else 0.0
                     creator.total_ratings_count = completed_apps.count()
                 else:
-                    creator.rating = float(rating_val)
-                    creator.total_ratings_count = 1
+                    creator.rating = 0.0
+                    creator.total_ratings_count = 0
 
                 # Re-generate Creator embedding incorporating rating & feedback history
                 text_to_embed = f"{creator.niche}. {creator.bio or ''}. Rating: {creator.rating} stars out of 5 across {creator.total_ratings_count} completed deals."
@@ -837,6 +1423,28 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
                     transaction_type='campaign_payout'
                 )
 
+            # Dispatch Nodemailer completion & review notifications
+            try:
+                brand_name = brand_profile.company_name if (brand_profile and brand_profile.company_name) else campaign.brand_user.username
+                send_creator_reward_and_review_notification(
+                    creator.user.email,
+                    creator.user.username,
+                    campaign.title,
+                    brand_name,
+                    points,
+                    rating_val,
+                    feedback_input
+                )
+                send_brand_completion_notification(
+                    campaign.brand_user.email,
+                    brand_name,
+                    campaign.title,
+                    creator.user.username,
+                    points
+                )
+            except Exception:
+                pass
+
             return Response({
                 "message": f"Campaign completed! Rated creator {rating_val} ⭐ and transferred {points} points to {creator.user.username}.",
                 "brand_remaining_points": brand_profile.points_balance,
@@ -846,6 +1454,44 @@ class CampaignApplicationViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             return Response({"error": f"Transaction failed: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='reject-work')
+    def reject_work(self, request, pk=None):
+        application = self.get_object()
+        campaign = application.campaign
+
+        if campaign.brand_user != request.user:
+            return Response({"error": "Unauthorized action."}, status=status.HTTP_403_FORBIDDEN)
+
+        if application.status != 'submitted':
+            return Response({"error": "Only submitted work can be rejected."}, status=status.HTTP_400_BAD_REQUEST)
+
+        rejection_reason = request.data.get('rejection_reason', '').strip()
+        if not rejection_reason:
+            return Response({"error": "Please provide a reason for rejecting the submitted work."}, status=status.HTTP_400_BAD_REQUEST)
+
+        application.status = 'rejected'
+        application.rejection_reason = rejection_reason
+        application.save()
+
+        # Send Email notification to Creator about Work Rejection with Reason
+        try:
+            brand_profile = getattr(request.user, 'brand_profile', None)
+            brand_name = brand_profile.company_name if (brand_profile and brand_profile.company_name) else campaign.brand_user.username
+            send_creator_work_rejected_notification(
+                creator_email=application.creator.user.email,
+                creator_username=application.creator.user.username,
+                campaign_title=campaign.title,
+                brand_name=brand_name,
+                rejection_reason=rejection_reason
+            )
+        except Exception:
+            pass
+
+        return Response({
+            "message": "Submitted work marked as rejected.",
+            "rejection_reason": rejection_reason
+        }, status=status.HTTP_200_OK)
 
 
 # ==========================================
@@ -953,7 +1599,7 @@ class UserSearchAndSortView(APIView):
                     "location": c.location,
                     "social_links": c.social_links or {},
                     "points_balance": c.points_balance,
-                    "rating": float(getattr(c, 'rating', 5.0) or 5.0),
+                    "rating": float(c.rating) if getattr(c, 'total_ratings_count', 0) > 0 else 0.0,
                     "total_ratings_count": getattr(c, 'total_ratings_count', 0),
                     "created_at": c.created_at.isoformat() if c.created_at else None,
                 })

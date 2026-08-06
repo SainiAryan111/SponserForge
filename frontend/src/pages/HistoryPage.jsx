@@ -35,12 +35,17 @@ export default function HistoryPage() {
   }, []);
 
   const filteredApplications = applications.filter((app) => {
+    const isExpired = app.status === 'expired' ||
+      (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+      (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
+
     if (filterTab === 'all') return true;
-    if (filterTab === 'offered') return app.status === 'offered';
+    if (filterTab === 'offered') return app.status === 'offered' && !isExpired;
     if (filterTab === 'applied' || filterTab === 'requested') return app.status === 'pending';
-    if (filterTab === 'accepted') return app.status === 'accepted';
+    if (filterTab === 'accepted') return app.status === 'accepted' && !isExpired;
     if (filterTab === 'submitted') return app.status === 'submitted';
     if (filterTab === 'successful') return app.status === 'completed';
+    if (filterTab === 'expired') return isExpired;
     if (filterTab === 'rejected') return app.status === 'rejected';
     return true;
   });
@@ -113,7 +118,8 @@ export default function HistoryPage() {
             { key: 'accepted', label: 'In Progress' },
             { key: 'submitted', label: 'In Review' },
             { key: 'successful', label: 'Completed' },
-            { key: 'rejected', label: 'Rejected / Expired' },
+            { key: 'expired', label: 'Expired' },
+            { key: 'rejected', label: 'Rejected' },
           ].map((tab) => (
             <button
               key={tab.key}

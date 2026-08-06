@@ -3,6 +3,7 @@ import { AuthContext } from '../context/AuthContext';
 import { LogOut, User, LayoutDashboard, Search, History, Sparkles, Building2, Zap } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import ConfirmModal from './ConfirmModal';
+import { resolveImageUrl } from '../utils/imageUtils';
 
 export default function Navbar() {
   const { user, logout } = useContext(AuthContext);
@@ -102,7 +103,16 @@ export default function Navbar() {
                     : 'bg-zinc-900 hover:bg-zinc-800 border-red-500/40 text-white'
                 }`}
               >
-                <User className={`w-4 h-4 ${isBrand ? 'text-blue-600' : 'text-red-400'}`} />
+                {resolveImageUrl(user?.logo_url || user?.avatar_url) ? (
+                  <img
+                    src={resolveImageUrl(user?.logo_url || user?.avatar_url)}
+                    alt={user.username}
+                    className="w-5 h-5 rounded-full object-cover shrink-0"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                ) : (
+                  <User className={`w-4 h-4 ${isBrand ? 'text-blue-600' : 'text-red-400'}`} />
+                )}
                 <span className="text-xs sm:text-sm font-black hidden md:inline">{user.username}</span>
                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md border ${
                   isBrand ? 'bg-blue-100 text-blue-900 border-blue-300' : 'bg-red-950 text-red-200 border-red-500/40'

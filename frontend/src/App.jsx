@@ -9,6 +9,7 @@ import CreatorDashboard from './pages/CreatorDashboard.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import CreateCampaignPage from './pages/CreateCampaignPage.jsx';
 import CampaignDetailPage from './pages/CampaignDetailPage.jsx';
+import ApplicationDetailPage from './pages/ApplicationDetailPage.jsx';
 import PreviousWorkPage from './pages/PreviousWorkPage.jsx';
 import HistoryPage from './pages/HistoryPage.jsx';
 import SearchUsersPage from './pages/SearchUsersPage.jsx';
@@ -165,6 +166,16 @@ function App() {
               }
             />
 
+            {/* Application / Deal Detail Page */}
+            <Route
+              path="/application/:id"
+              element={
+                <ProtectedRoute>
+                  <ApplicationDetailPage />
+                </ProtectedRoute>
+              }
+            />
+
             {/* Previous Work & Deliverables Portfolio Page */}
             <Route
               path="/portfolio"
@@ -206,6 +217,14 @@ function App() {
             {/* Profile Page */}
             <Route
               path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile/:username"
               element={
                 <ProtectedRoute>
                   <ProfilePage />

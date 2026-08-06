@@ -12,6 +12,7 @@ class CreatorProfileSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField(source='user.username')
     email = serializers.ReadOnlyField(source='user.email')
     role = serializers.ReadOnlyField(source='user.role')
+    rating = serializers.SerializerMethodField()
 
     class Meta:
         model = CreatorProfile
@@ -22,6 +23,11 @@ class CreatorProfileSerializer(serializers.ModelSerializer):
             'rating', 'total_ratings_count', 'social_links', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'username', 'email', 'role', 'points_balance', 'rating', 'total_ratings_count', 'created_at', 'updated_at']
+
+    def get_rating(self, obj):
+        if getattr(obj, 'total_ratings_count', 0) > 0 and getattr(obj, 'rating', None) is not None:
+            return round(float(obj.rating), 2)
+        return 0.0
 
 
 class BrandProfileSerializer(serializers.ModelSerializer):
@@ -48,14 +54,25 @@ class BrandProfileSerializer(serializers.ModelSerializer):
 class CreatorMatchSerializer(serializers.ModelSerializer):
     username = serializers.ReadOnlyField(source='user.username')
     similarity_score = serializers.FloatField(read_only=True, required=False)
+    match_percentage = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
 
     class Meta:
         model = CreatorProfile
         fields = [
             'id', 'username', 'name', 'bio', 'niche', 'primary_platform', 
             'subscriber_count', 'engagement_rate', 'avatar_url', 
-            'location', 'rating', 'total_ratings_count', 'social_links', 'similarity_score'
+            'location', 'rating', 'total_ratings_count', 'social_links', 'similarity_score', 'match_percentage'
         ]
+
+    def get_match_percentage(self, obj):
+        score = getattr(obj, 'similarity_score', 0.85)
+        return int(round(score * 100))
+
+    def get_rating(self, obj):
+        if getattr(obj, 'total_ratings_count', 0) > 0 and getattr(obj, 'rating', None) is not None:
+            return round(float(obj.rating), 2)
+        return 0.0
 
 
 class CampaignSerializer(serializers.ModelSerializer):
@@ -102,6 +119,7 @@ class CampaignApplicationSerializer(serializers.ModelSerializer):
     creator_niche = serializers.ReadOnlyField(source='creator.niche')
     creator_avatar = serializers.ReadOnlyField(source='creator.avatar_url')
     campaign_title = serializers.ReadOnlyField(source='campaign.title')
+    campaign_status = serializers.ReadOnlyField(source='campaign.status')
     campaign_end_datetime = serializers.SerializerMethodField()
     campaign_start_datetime = serializers.ReadOnlyField(source='campaign.start_datetime')
     points_reward = serializers.ReadOnlyField(source='campaign.points_reward')
@@ -111,11 +129,11 @@ class CampaignApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = CampaignApplication
         fields = [
-            'id', 'campaign', 'campaign_title', 'campaign_end_datetime', 'campaign_start_datetime',
+            'id', 'campaign', 'campaign_title', 'campaign_status', 'campaign_end_datetime', 'campaign_start_datetime',
             'brand_username', 'brand_name', 'creator', 
             'creator_username', 'creator_name', 'creator_niche', 'creator_avatar', 
             'pitch', 'work_description', 'submission_deadline', 'submission_link', 
-            'rating', 'feedback', 'status', 'points_reward', 'applied_at', 'updated_at'
+            'rating', 'feedback', 'rejection_reason', 'status', 'points_reward', 'applied_at', 'updated_at', 'submitted_at'
         ]
         read_only_fields = ['id', 'creator', 'applied_at', 'updated_at']
 

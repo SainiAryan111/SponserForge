@@ -1,24 +1,29 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { getUserProfile, updateUserProfile, getCampaigns, getApplications } from '../services/api';
+import { getUserProfile, updateUserProfile } from '../services/api';
 import { 
   ArrowLeft, 
-  History as HistoryIcon, 
   Award, 
   Sparkles, 
   Star, 
   Building2, 
   Zap, 
   Save, 
-  Plus, 
+  Edit3, 
+  X, 
   Globe, 
   MapPin, 
   Image, 
   Percent, 
   Users, 
-  Link as LinkIcon 
+  Link as LinkIcon, 
+  Mail, 
+  User as UserIcon, 
+  CheckCircle2, 
+  Flame 
 } from 'lucide-react';
+import { resolveImageUrl } from '../utils/imageUtils';
 
 const DEFAULT_NICHES = ['tech', 'gaming', 'lifestyle', 'fashion', 'fitness', 'finance'];
 const DEFAULT_PLATFORMS = ['youtube', 'instagram', 'tiktok', 'twitch'];
@@ -26,31 +31,39 @@ const DEFAULT_INDUSTRIES = ['SaaS & AI Software', 'E-Commerce & Retail', 'Gaming
 
 export default function ProfilePage() {
   const navigate = useNavigate();
+  const { username: paramUsername } = useParams();
   const { user, setUser } = useContext(AuthContext);
 
-  const [formData, setFormData] = useState({
+  // View Mode by default (isEditing = false)
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Committed Profile State (Read-only for View Mode & Headers)
+  const [profileData, setProfileData] = useState({
     username: '',
     email: '',
-    // Brand Fields
+    role: '',
     company_name: '',
-    industry: DEFAULT_INDUSTRIES[0],
+    industry: '',
     website: '',
-    company_size: '10-50',
+    company_size: '',
     target_audience: '',
     logo_url: '',
-    // Creator Fields
     name: '',
     platform_link: '',
     subscriber_count: 0,
     engagement_rate: 2.50,
     avatar_url: '',
-    // Shared Fields
     bio: '',
     location: '',
     points_balance: 0,
-    rating: 5.0,
+    rating: 0.0,
     total_ratings_count: 0,
+    niche: '',
+    primary_platform: '',
   });
+
+  // Draft Form State (Active ONLY during Edit Mode)
+  const [editFormData, setEditFormData] = useState({ ...profileData });
 
   const [customIndustry, setCustomIndustry] = useState('');
   const [numericEmpCount, setNumericEmpCount] = useState('');
@@ -65,21 +78,25 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  const isOwnProfile = !paramUsername || paramUsername.toLowerCase() === user?.username?.toLowerCase();
 
-  const fetchProfile = async () => {
+  useEffect(() => {
+    fetchProfile(paramUsername);
+  }, [paramUsername]);
+
+  const fetchProfile = async (targetUser) => {
+    setLoading(true);
     try {
-      const res = await getUserProfile();
+      const res = await getUserProfile(targetUser);
       const data = res.data;
-      setFormData({
+      const loaded = {
         username: data.username || '',
         email: data.email || '',
+        role: data.role || 'creator',
         company_name: data.company_name || '',
-        industry: data.industry || DEFAULT_INDUSTRIES[0],
+        industry: data.industry || '',
         website: data.website || '',
-        company_size: data.company_size || '10-50',
+        company_size: data.company_size || '',
         target_audience: data.target_audience || '',
         logo_url: data.logo_url || '',
         name: data.name || '',
@@ -90,52 +107,73 @@ export default function ProfilePage() {
         bio: data.bio || '',
         location: data.location || '',
         points_balance: data.points_balance || 0,
-        rating: data.rating ? Number(data.rating) : 5.0,
+        rating: (data.total_ratings_count > 0 && data.rating != null) ? Number(data.rating) : 0.0,
         total_ratings_count: data.total_ratings_count || 0,
-      });
+        niche: data.niche || '',
+        primary_platform: data.primary_platform || '',
+      };
 
-      if (data.niche) {
-        setSelectedNiches(data.niche.split(',').map(s => s.trim().toLowerCase()));
-      }
-      if (data.primary_platform) {
-        setSelectedPlatforms(data.primary_platform.split(',').map(s => s.trim().toLowerCase()));
+      setProfileData(loaded);
+      setEditFormData(loaded);
+
+      if (loaded.company_size) {
+        const match = loaded.company_size.match(/\d+/);
+        if (match) setNumericEmpCount(match[0]);
       }
 
-      if (data.industry && !DEFAULT_INDUSTRIES.includes(data.industry)) {
-        setCustomIndustry(data.industry);
+      if (loaded.niche) {
+        setSelectedNiches(loaded.niche.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+      }
+      if (loaded.primary_platform) {
+        setSelectedPlatforms(loaded.primary_platform.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
       }
     } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to load profile data.' });
+      console.error('Failed to fetch profile:', err);
+      setMessage({ type: 'error', text: 'Unable to load specified user profile.' });
     } finally {
       setLoading(false);
     }
   };
 
+  const handleStartEditing = () => {
+    if (!isOwnProfile) return;
+    setEditFormData({ ...profileData });
+    if (profileData.company_size) {
+      const match = profileData.company_size.match(/\d+/);
+      if (match) setNumericEmpCount(match[0]);
+    }
+    if (profileData.niche) {
+      setSelectedNiches(profileData.niche.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+    }
+    if (profileData.primary_platform) {
+      setSelectedPlatforms(profileData.primary_platform.split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+    }
+    setIsEditing(true);
+    setMessage({ type: '', text: '' });
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setMessage({ type: '', text: '' });
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleNumericEmpCountChange = (val) => {
     setNumericEmpCount(val);
-    const count = parseInt(val, 10);
-    if (!isNaN(count)) {
-      let sizeScale = '1-10';
-      if (count <= 10) sizeScale = '1-10';
-      else if (count <= 50) sizeScale = '10-50';
-      else if (count <= 250) sizeScale = '50-250';
-      else sizeScale = '250+';
-      setFormData(prev => ({ ...prev, company_size: sizeScale }));
-    }
+    setEditFormData((prev) => ({
+      ...prev,
+      company_size: val ? `${val} employees` : '',
+    }));
   };
 
   const handleNicheCheckbox = (n) => {
     if (selectedNiches.includes(n)) {
       if (selectedNiches.length > 1) {
-        setSelectedNiches(selectedNiches.filter(item => item !== n));
+        setSelectedNiches(selectedNiches.filter((item) => item !== n));
       }
     } else {
       setSelectedNiches([...selectedNiches, n]);
@@ -145,7 +183,7 @@ export default function ProfilePage() {
   const handlePlatformCheckbox = (p) => {
     if (selectedPlatforms.includes(p)) {
       if (selectedPlatforms.length > 1) {
-        setSelectedPlatforms(selectedPlatforms.filter(item => item !== p));
+        setSelectedPlatforms(selectedPlatforms.filter((item) => item !== p));
       }
     } else {
       setSelectedPlatforms([...selectedPlatforms, p]);
@@ -174,37 +212,80 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isOwnProfile) return;
     setSaving(true);
     setMessage({ type: '', text: '' });
 
-    const finalIndustry = customIndustry.trim() ? customIndustry.trim() : formData.industry;
-
-    let finalNiches = [...selectedNiches];
-    if (customNiche.trim()) {
-      const cleaned = customNiche.trim().toLowerCase();
-      if (!finalNiches.includes(cleaned)) finalNiches.push(cleaned);
-    }
-
-    let finalPlatforms = [...selectedPlatforms];
-    if (customPlatform.trim()) {
-      const cleaned = customPlatform.trim().toLowerCase();
-      if (!finalPlatforms.includes(cleaned)) finalPlatforms.push(cleaned);
-    }
-
-    const updatedPayload = {
-      ...formData,
-      industry: finalIndustry,
-      niche: finalNiches.join(','),
-      primary_platform: finalPlatforms.join(','),
-    };
-
     try {
+      const finalIndustry = (customIndustry || '').trim() ? customIndustry.trim() : editFormData.industry;
+
+      let finalNiches = [...selectedNiches];
+      if (customNiche && customNiche.trim()) {
+        const cleaned = customNiche.trim().toLowerCase();
+        if (!finalNiches.includes(cleaned)) finalNiches.push(cleaned);
+      }
+
+      let finalPlatforms = [...selectedPlatforms];
+      if (customPlatform && customPlatform.trim()) {
+        const cleaned = customPlatform.trim().toLowerCase();
+        if (!finalPlatforms.includes(cleaned)) finalPlatforms.push(cleaned);
+      }
+
+      const updatedPayload = {
+        ...editFormData,
+        industry: finalIndustry,
+        logo_url: resolveImageUrl(editFormData.logo_url),
+        avatar_url: resolveImageUrl(editFormData.avatar_url),
+        niche: finalNiches.join(','),
+        primary_platform: finalPlatforms.join(','),
+      };
+
       const res = await updateUserProfile(updatedPayload);
-      setUser(res.data);
-      localStorage.setItem('user_data', JSON.stringify(res.data));
+
+      const committed = {
+        ...profileData,
+        ...res.data,
+        username: res.data.username || editFormData.username,
+        email: res.data.email || editFormData.email,
+        company_name: res.data.company_name || editFormData.company_name,
+        name: res.data.name || editFormData.name,
+        industry: res.data.industry || finalIndustry,
+        website: res.data.website || editFormData.website,
+        company_size: res.data.company_size || editFormData.company_size,
+        logo_url: resolveImageUrl(res.data.logo_url || editFormData.logo_url),
+        avatar_url: resolveImageUrl(res.data.avatar_url || editFormData.avatar_url),
+        platform_link: res.data.platform_link || editFormData.platform_link,
+        subscriber_count: res.data.subscriber_count ?? editFormData.subscriber_count,
+        engagement_rate: res.data.engagement_rate ?? editFormData.engagement_rate,
+        bio: res.data.bio || editFormData.bio,
+        location: res.data.location || editFormData.location,
+        niche: finalNiches.join(','),
+        primary_platform: finalPlatforms.join(','),
+      };
+
+      setProfileData(committed);
+      setUser(committed);
+      localStorage.setItem('user_data', JSON.stringify(committed));
       setMessage({ type: 'success', text: 'Profile & credentials updated successfully!' });
+      setIsEditing(false); // Revert to View Mode ONLY on successful save!
     } catch (err) {
-      setMessage({ type: 'error', text: err.response?.data?.error || 'Failed to update profile.' });
+      console.error('Profile update error:', err);
+      let errMsg = 'Failed to update profile.';
+      if (err.response?.data) {
+        const data = err.response.data;
+        if (typeof data.error === 'string') errMsg = data.error;
+        else if (typeof data.detail === 'string') errMsg = data.detail;
+        else if (typeof data === 'object') {
+          const keys = Object.keys(data);
+          if (keys.length > 0) {
+            const val = data[keys[0]];
+            errMsg = `${keys[0]}: ${Array.isArray(val) ? val[0] : val}`;
+          }
+        }
+      } else if (err.message) {
+        errMsg = err.message;
+      }
+      setMessage({ type: 'error', text: errMsg });
     } finally {
       setSaving(false);
     }
@@ -212,17 +293,19 @@ export default function ProfilePage() {
 
   const handleTopUpPoints = async (e) => {
     e.preventDefault();
+    if (!isOwnProfile) return;
     setSaving(true);
     setMessage({ type: '', text: '' });
 
-    const newBalance = (formData.points_balance || 0) + parseInt(topUpAmount, 10);
-    const updatedPayload = { ...formData, points_balance: newBalance };
+    const newBalance = (profileData.points_balance || 0) + parseInt(topUpAmount, 10);
+    const updatedPayload = { ...profileData, points_balance: newBalance };
 
     try {
       const res = await updateUserProfile(updatedPayload);
-      setFormData((prev) => ({ ...prev, points_balance: res.data.points_balance }));
-      setUser(res.data);
-      localStorage.setItem('user_data', JSON.stringify(res.data));
+      const updated = { ...profileData, points_balance: res.data.points_balance };
+      setProfileData(updated);
+      setUser(updated);
+      localStorage.setItem('user_data', JSON.stringify(updated));
       setMessage({
         type: 'success',
         text: `Successfully purchased +${topUpAmount} Escrow Points!`,
@@ -234,7 +317,7 @@ export default function ProfilePage() {
     }
   };
 
-  const isBrand = user?.role === 'brand';
+  const isBrand = isOwnProfile ? user?.role === 'brand' : profileData.role === 'brand';
 
   if (loading) {
     return (
@@ -245,6 +328,9 @@ export default function ProfilePage() {
       </div>
     );
   }
+
+  const activeImage = resolveImageUrl(isBrand ? profileData.logo_url : profileData.avatar_url);
+  const activeName = isBrand ? profileData.company_name || profileData.username : profileData.name || profileData.username;
 
   return (
     <div className={`min-h-screen transition-colors duration-500 p-4 sm:p-8 ${
@@ -260,10 +346,10 @@ export default function ProfilePage() {
           }`}
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Dashboard</span>
+          <span>Back</span>
         </button>
 
-        {/* HEADER BAR */}
+        {/* HEADER BAR WITH COMMITTED PROFILE DATA */}
         <div className={`rounded-3xl p-6 sm:p-8 shadow-xl border flex flex-col md:flex-row md:items-center justify-between gap-6 ${
           isBrand
             ? 'bg-white border-blue-200 shadow-blue-500/5'
@@ -277,11 +363,23 @@ export default function ProfilePage() {
               <span>{isBrand ? 'Corporate Brand Identity Profile' : 'Creator Sponsorship Profile Node'}</span>
             </div>
 
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
-              {isBrand ? formData.company_name || formData.username : formData.name || formData.username}
+            <h1 className="text-3xl sm:text-4xl font-black tracking-tight flex items-center space-x-3">
+              {activeImage ? (
+                <img
+                  src={activeImage}
+                  alt={activeName}
+                  className={`w-10 h-10 sm:w-12 sm:h-12 rounded-2xl object-cover border shadow-md shrink-0 ${
+                    isBrand ? 'border-blue-200' : 'border-red-500/40'
+                  }`}
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              ) : null}
+              <span>{activeName}</span>
             </h1>
             <p className={`text-xs sm:text-sm font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-300'}`}>
-              Manage credentials, platform settings, company specs, & points balance.
+              {isOwnProfile
+                ? 'Manage credentials, platform settings, company specs, & points balance.'
+                : `Public view profile card for @${profileData.username}.`}
             </p>
           </div>
 
@@ -291,18 +389,20 @@ export default function ProfilePage() {
                 <span className="text-xs uppercase font-black text-amber-400 block">Rating Score</span>
                 <div className="flex items-center space-x-1 font-black text-amber-300 text-base sm:text-lg">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span>{formData.rating.toFixed(1)}</span>
-                  <span className="text-xs text-zinc-400 font-semibold">({formData.total_ratings_count})</span>
+                  <span>{profileData.total_ratings_count > 0 ? profileData.rating.toFixed(1) : '0.0'}</span>
+                  <span className="text-xs text-zinc-400 font-semibold">({profileData.total_ratings_count})</span>
                 </div>
               </div>
             )}
 
-            <div className={`px-6 py-3 rounded-2xl text-center shadow-lg ${
-              isBrand ? 'bg-blue-600 text-white shadow-blue-600/30' : 'bg-gradient-to-br from-red-600 to-rose-700 text-white shadow-red-600/40'
-            }`}>
-              <span className="text-xs uppercase tracking-wider font-black block opacity-90">Points Balance</span>
-              <div className="text-2xl sm:text-3xl font-black">{formData.points_balance} PTS</div>
-            </div>
+            {isOwnProfile && (
+              <div className={`px-6 py-3 rounded-2xl text-center shadow-lg ${
+                isBrand ? 'bg-blue-600 text-white shadow-blue-600/30' : 'bg-gradient-to-br from-red-600 to-rose-700 text-white shadow-red-600/40'
+              }`}>
+                <span className="text-xs uppercase tracking-wider font-black block opacity-90">Points Balance</span>
+                <div className="text-2xl sm:text-3xl font-black">{profileData.points_balance} PTS</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -317,403 +417,562 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* MAIN EDIT FORM CONTAINER */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* MAIN CONTAINER (VIEW MODE vs EDIT MODE) */}
+        <div className={`grid grid-cols-1 ${isOwnProfile ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
           
-          {/* LEFT 2 COLS: EDIT FORM (ALL SCHEMA FIELDS) */}
-          <form onSubmit={handleSubmit} className={`lg:col-span-2 rounded-3xl p-6 sm:p-8 border shadow-xl space-y-6 ${
-            isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
-          }`}>
-            <h2 className="text-xl font-black border-b pb-3">Edit Complete Profile (All DB Fields)</h2>
-
-            {/* BASE USER CREDENTIALS */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
-                  isBrand ? 'text-slate-800' : 'text-zinc-200'
-                }`}>Username *</label>
-                <input
-                  type="text"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleInputChange}
-                  className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
-                    isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
-                  isBrand ? 'text-slate-800' : 'text-zinc-200'
-                }`}>Email Address *</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
-                    isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
-                  }`}
-                />
-              </div>
-            </div>
-
-            {/* BRAND SCHEMA FIELDS */}
-            {isBrand ? (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* LEFT COLS: VIEW MODE OR EDIT FORM */}
+          <div className={isOwnProfile ? 'lg:col-span-2' : 'col-span-full'}>
+            {!isEditing ? (
+              /* ==========================================
+                 1. VIEW MODE (READS FROM COMMITTED profileData ONLY)
+                 ========================================== */
+              <div className={`rounded-3xl p-6 sm:p-8 border shadow-xl space-y-6 ${
+                isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
+              }`}>
+                <div className="flex items-center justify-between border-b pb-4">
                   <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Name</label>
-                    <input
-                      type="text"
-                      name="company_name"
-                      value={formData.company_name}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
+                    <h2 className="text-xl font-black">Profile Details Overview</h2>
+                    <p className={`text-xs font-semibold ${isBrand ? 'text-slate-500' : 'text-zinc-400'}`}>
+                      {isOwnProfile
+                        ? 'Read-only profile card. Click "Edit Profile" at top to make changes.'
+                        : `Viewing user profile card for @${profileData.username}.`}
+                    </p>
                   </div>
-
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Website URL</label>
-                    <input
-                      type="url"
-                      name="website"
-                      value={formData.website}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* INDUSTRY: DROPDOWN + TYPED CUSTOM INPUT */}
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Industry Sector</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
-                    <select
-                      name="industry"
-                      value={formData.industry}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  {isOwnProfile && (
+                    <button
+                      type="button"
+                      onClick={handleStartEditing}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center space-x-1.5 cursor-pointer ${
+                        isBrand ? 'bg-blue-100 text-blue-800 hover:bg-blue-200' : 'bg-red-950 text-red-200 hover:bg-red-900'
+                      }`}
                     >
-                      {DEFAULT_INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-                    </select>
-
-                    <input
-                      type="text"
-                      placeholder="Or type custom industry..."
-                      value={customIndustry}
-                      onChange={(e) => setCustomIndustry(e.target.value)}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+                  )}
                 </div>
 
+                {/* USER IDENTITY CREDENTIALS */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Employee Count (Numeric)</label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 25"
-                      value={numericEmpCount}
-                      onChange={(e) => handleNumericEmpCountChange(e.target.value)}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
+                  <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                    <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Username Handle</span>
+                    <div className="flex items-center space-x-2 font-bold text-sm">
+                      <UserIcon className={`w-4 h-4 ${isBrand ? 'text-blue-600' : 'text-red-400'}`} />
+                      <span>@{profileData.username}</span>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Size Scale</label>
-                    <select
-                      name="company_size"
-                      value={formData.company_size}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="1-10">1-10 Employees (Startup)</option>
-                      <option value="10-50">10-50 Employees (Growth)</option>
-                      <option value="50-250">50-250 Employees (Mid-Market)</option>
-                      <option value="250+">250+ Employees (Enterprise)</option>
-                    </select>
+                  <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                    <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Verified Email</span>
+                    <div className="flex items-center space-x-2 font-bold text-sm">
+                      <Mail className="w-4 h-4 text-emerald-500" />
+                      <span>{profileData.email}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Target Audience Demographic</label>
-                    <input
-                      type="text"
-                      name="target_audience"
-                      value={formData.target_audience}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* ROLE SPECIFIC OVERVIEW */}
+                {isBrand ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Company Name</span>
+                        <strong className="text-sm font-black">{profileData.company_name || 'Not specified'}</strong>
+                      </div>
+
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Industry Type</span>
+                        <strong className="text-sm font-black text-blue-700">{profileData.industry || 'Not specified'}</strong>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Employee Count</span>
+                        <strong className="text-sm font-black">{profileData.company_size || 'Not specified'}</strong>
+                      </div>
+
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">HQ Location</span>
+                        <strong className="text-sm font-black">{profileData.location || 'Not specified'}</strong>
+                      </div>
+                    </div>
+
+                    {profileData.website && (
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Official Website</span>
+                        <a
+                          href={profileData.website.startsWith('http') ? profileData.website : `https://${profileData.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-black text-blue-600 hover:underline flex items-center space-x-1.5"
+                        >
+                          <Globe className="w-4 h-4" />
+                          <span>{profileData.website}</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {profileData.bio && (
+                      <div className={`p-4 rounded-2xl border ${isBrand ? 'bg-slate-50 border-slate-200' : 'bg-zinc-950 border-zinc-800'}`}>
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Brand Mission & Bio</span>
+                        <p className="text-xs sm:text-sm font-medium text-slate-700">{profileData.bio}</p>
+                      </div>
+                    )}
                   </div>
+                ) : (
+                  /* CREATOR VIEW MODE */
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Full Creator Name</span>
+                        <strong className="text-sm font-black text-white">{profileData.name || 'Not specified'}</strong>
+                      </div>
 
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Headquarters Location</label>
-                    <input
-                      type="text"
-                      name="location"
-                      value={formData.location}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                    />
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Subscribers / Audience</span>
+                        <strong className="text-sm font-black text-red-400">{profileData.subscriber_count ? profileData.subscriber_count.toLocaleString() : '1,000+'}</strong>
+                      </div>
+                    </div>
+
+                    {/* Engagement Rate & Location */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Engagement Rate</span>
+                        <div className="flex items-center space-x-1.5 text-sm font-black text-emerald-400">
+                          <Percent className="w-4 h-4 shrink-0 text-emerald-400" />
+                          <span>{profileData.engagement_rate}%</span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Creator Location</span>
+                        <div className="flex items-center space-x-1.5 text-sm font-black text-white">
+                          <MapPin className="w-4 h-4 shrink-0 text-red-400" />
+                          <span>{profileData.location || 'Not specified'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Content Niches */}
+                    <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800 space-y-2">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block">Content Niches</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {profileData.niche ? (
+                          profileData.niche.split(',').map((n) => (
+                            <span key={n} className="bg-red-600 text-white px-3 py-1 rounded-xl text-xs font-black uppercase">
+                              {n.trim()}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-zinc-500">None selected</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Primary Platforms */}
+                    <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800 space-y-2">
+                      <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block">Primary Platforms</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {profileData.primary_platform ? (
+                          profileData.primary_platform.split(',').map((p) => (
+                            <span key={p} className="bg-zinc-800 text-red-400 border border-zinc-700 px-3 py-1 rounded-xl text-xs font-black uppercase">
+                              {p.trim()}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-zinc-500">None selected</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {profileData.platform_link && (
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Main Channel Link</span>
+                        <a
+                          href={profileData.platform_link.startsWith('http') ? profileData.platform_link : `https://${profileData.platform_link}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-black text-red-400 hover:underline flex items-center space-x-1.5"
+                        >
+                          <LinkIcon className="w-4 h-4" />
+                          <span>{profileData.platform_link}</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {profileData.bio && (
+                      <div className="p-4 rounded-2xl border bg-zinc-950 border-zinc-800">
+                        <span className="text-[10px] uppercase font-black tracking-wider text-zinc-500 block mb-1">Creator Bio & Content Style</span>
+                        <p className="text-xs sm:text-sm font-medium text-zinc-300">{profileData.bio}</p>
+                      </div>
+                    )}
                   </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Brand Logo Image URL</label>
-                  <input
-                    type="url"
-                    name="logo_url"
-                    value={formData.logo_url}
-                    onChange={handleInputChange}
-                    className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Bio & Overview</label>
-                  <textarea
-                    rows={3}
-                    name="bio"
-                    value={formData.bio}
-                    onChange={handleInputChange}
-                    className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                )}
               </div>
             ) : (
-              /* CREATOR SCHEMA FIELDS */
-              <div className="space-y-4">
+              /* ==========================================
+                 2. EDIT MODE (USES UNCOMMITTED editFormData ONLY)
+                 ========================================== */
+              <form onSubmit={handleSubmit} className={`rounded-3xl p-6 sm:p-8 border shadow-xl space-y-6 ${
+                isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
+              }`}>
+                <div className="border-b pb-4">
+                  <h2 className="text-xl font-black">Edit Profile Details</h2>
+                </div>
+
+                {/* BASE USER CREDENTIALS */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Creator Display Name</label>
+                    <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
+                      isBrand ? 'text-slate-800' : 'text-zinc-200'
+                    }`}>Username *</label>
                     <input
                       type="text"
-                      name="name"
-                      value={formData.name}
+                      name="username"
+                      value={editFormData.username}
                       onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                      className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
+                        isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
+                      }`}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Main Channel / Profile URL</label>
+                    <label className={`block text-xs sm:text-sm font-extrabold uppercase tracking-wider mb-1 ${
+                      isBrand ? 'text-slate-800' : 'text-zinc-200'
+                    }`}>Email Address *</label>
                     <input
-                      type="url"
-                      name="platform_link"
-                      value={formData.platform_link}
+                      type="email"
+                      name="email"
+                      value={editFormData.email}
                       onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                      className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold focus:outline-none focus:ring-2 ${
+                        isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900 focus:ring-blue-500' : 'bg-zinc-950 border border-zinc-800 text-white focus:ring-red-500'
+                      }`}
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Subscriber Count</label>
-                    <input
-                      type="number"
-                      name="subscriber_count"
-                      value={formData.subscriber_count}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
+                {/* BRAND SCHEMA EDIT FIELDS */}
+                {isBrand ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Name</label>
+                        <input
+                          type="text"
+                          name="company_name"
+                          value={editFormData.company_name}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
 
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Engagement Rate (%)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      name="engagement_rate"
-                      value={formData.engagement_rate}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Company Website URL</label>
+                        <input
+                          type="url"
+                          name="website"
+                          value={editFormData.website}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Location</label>
-                    <input
-                      type="text"
-                      name="location"
-                      value={formData.location}
-                      onChange={handleInputChange}
-                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                    />
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Industry Type</label>
+                      <input
+                        type="text"
+                        name="industry"
+                        placeholder="e.g. SaaS & AI Software, E-Commerce, Gaming..."
+                        value={editFormData.industry}
+                        onChange={handleInputChange}
+                        className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Employee Count</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 25"
+                          value={numericEmpCount}
+                          onChange={(e) => handleNumericEmpCountChange(e.target.value)}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">HQ Location</label>
+                        <input
+                          type="text"
+                          name="location"
+                          value={editFormData.location}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Brand Logo Image URL</label>
+                      <input
+                        type="url"
+                        name="logo_url"
+                        placeholder="https://example.com/logo.png"
+                        value={editFormData.logo_url}
+                        onChange={handleInputChange}
+                        className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-slate-800 mb-1">Brand Bio & Mission</label>
+                      <textarea
+                        rows={3}
+                        name="bio"
+                        value={editFormData.bio}
+                        onChange={handleInputChange}
+                        className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-slate-50 border border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                ) : (
+                  /* CREATOR SCHEMA EDIT FIELDS */
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Full Creator Name</label>
+                        <input
+                          type="text"
+                          name="name"
+                          value={editFormData.name}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Main Channel / Profile URL</label>
+                        <input
+                          type="url"
+                          name="platform_link"
+                          value={editFormData.platform_link}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Subscriber Count</label>
+                        <input
+                          type="number"
+                          name="subscriber_count"
+                          value={editFormData.subscriber_count}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Engagement Rate (%)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          name="engagement_rate"
+                          value={editFormData.engagement_rate}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Location</label>
+                        <input
+                          type="text"
+                          name="location"
+                          value={editFormData.location}
+                          onChange={handleInputChange}
+                          className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* CREATOR NICHES */}
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Content Niches</label>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {DEFAULT_NICHES.map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => handleNicheCheckbox(n)}
+                            className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
+                              selectedNiches.includes(n)
+                                ? 'bg-red-600 text-white shadow-md'
+                                : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex space-x-2">
+                        <input
+                          type="text"
+                          placeholder="Add custom niche..."
+                          value={customNiche}
+                          onChange={(e) => setCustomNiche(e.target.value)}
+                          className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCustomNiche}
+                          className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
+                        >
+                          + Add Tag
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* CREATOR PLATFORMS */}
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Primary Platforms</label>
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {DEFAULT_PLATFORMS.map((p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => handlePlatformCheckbox(p)}
+                            className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
+                              selectedPlatforms.includes(p)
+                                ? 'bg-red-600 text-white shadow-md'
+                                : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex space-x-2">
+                        <input
+                          type="text"
+                          placeholder="Add custom platform..."
+                          value={customPlatform}
+                          onChange={(e) => setCustomPlatform(e.target.value)}
+                          className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCustomPlatform}
+                          className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
+                        >
+                          + Add Tag
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Profile Image URL</label>
+                      <input
+                        type="url"
+                        name="avatar_url"
+                        value={editFormData.avatar_url}
+                        onChange={handleInputChange}
+                        className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Creator Bio & Content Style</label>
+                      <textarea
+                        rows={3}
+                        name="bio"
+                        value={editFormData.bio}
+                        onChange={handleInputChange}
+                        className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelEditing}
+                    className="px-5 py-3 rounded-2xl text-xs sm:text-sm font-extrabold text-zinc-400 hover:text-white cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className={`py-3.5 px-8 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center space-x-2 cursor-pointer ${
+                      isBrand ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-500 text-white'
+                    }`}
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{saving ? 'Saving Changes...' : 'Save Profile Changes'}</span>
+                  </button>
                 </div>
-
-                {/* CREATOR NICHES: SELECTION + TYPED INPUT */}
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Content Niches</label>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {DEFAULT_NICHES.map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => handleNicheCheckbox(n)}
-                        className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
-                          selectedNiches.includes(n)
-                            ? 'bg-red-600 text-white shadow-md'
-                            : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      placeholder="Add custom niche tag..."
-                      value={customNiche}
-                      onChange={(e) => setCustomNiche(e.target.value)}
-                      className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddCustomNiche}
-                      className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
-                    >
-                      + Add Tag
-                    </button>
-                  </div>
-                </div>
-
-                {/* CREATOR PLATFORMS: SELECTION + TYPED INPUT */}
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-2">Primary Platforms</label>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {DEFAULT_PLATFORMS.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => handlePlatformCheckbox(p)}
-                        className={`px-3 py-1.5 rounded-xl text-xs sm:text-sm font-black uppercase transition cursor-pointer ${
-                          selectedPlatforms.includes(p)
-                            ? 'bg-red-600 text-white shadow-md'
-                            : 'bg-zinc-950 text-zinc-300 border border-zinc-800 hover:border-zinc-700'
-                        }`}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      placeholder="Add custom platform tag..."
-                      value={customPlatform}
-                      onChange={(e) => setCustomPlatform(e.target.value)}
-                      className="flex-1 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleAddCustomPlatform}
-                      className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold cursor-pointer shrink-0"
-                    >
-                      + Add Tag
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Avatar Image URL</label>
-                  <input
-                    type="url"
-                    name="avatar_url"
-                    value={formData.avatar_url}
-                    onChange={handleInputChange}
-                    className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs sm:text-sm font-extrabold uppercase tracking-wider text-zinc-200 mb-1">Creator Bio & Content Style</label>
-                  <textarea
-                    rows={3}
-                    name="bio"
-                    value={formData.bio}
-                    onChange={handleInputChange}
-                    className="w-full rounded-2xl p-4 text-xs sm:text-sm font-medium bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-              </div>
+              </form>
             )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className={`w-full py-4 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
-                isBrand ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30' : 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/40'
-              }`}
-            >
-              <Save className="w-4 h-4" />
-              <span>{saving ? 'Saving Changes...' : 'Save Profile Changes'}</span>
-            </button>
-          </form>
+          {/* RIGHT COL: POINTS WALLET & TOP UP (OWN PROFILE ONLY) */}
+          {isOwnProfile && (
+            <div className="space-y-6">
+              <div className={`rounded-3xl p-6 border shadow-xl space-y-4 ${
+                isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
+              }`}>
+                <div className="flex items-center space-x-2 text-amber-500">
+                  <Sparkles className="w-5 h-5" />
+                  <h3 className="text-base font-black">Escrow Points Wallet</h3>
+                </div>
 
-          {/* RIGHT COL: POINTS TOP-UP & PORTFOLIO ACTION */}
-          <div className="space-y-6">
-            
-            {/* BRAND POINTS TOP UP CARD */}
-            {isBrand && (
-              <div className="bg-white border border-blue-200 rounded-3xl p-6 shadow-xl space-y-4 text-slate-900">
-                <h3 className="text-lg font-black text-slate-900">Purchase Escrow Points</h3>
-                <p className="text-xs sm:text-sm text-slate-600 font-medium">
-                  Add points to your brand balance to launch new campaigns and escrow funds for creators.
+                <p className={`text-xs font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-400'}`}>
+                  Points are held safely in Escrow during active campaigns and released to creators upon deliverable verification.
                 </p>
 
-                <form onSubmit={handleTopUpPoints} className="space-y-3">
+                <form onSubmit={handleTopUpPoints} className="space-y-3 pt-2">
+                  <label className={`block text-xs font-black uppercase tracking-wider ${
+                    isBrand ? 'text-slate-800' : 'text-zinc-200'
+                  }`}>Top-Up Amount (PTS)</label>
                   <select
                     value={topUpAmount}
                     onChange={(e) => setTopUpAmount(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-2xl p-3 text-xs sm:text-sm font-black text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold cursor-pointer ${
+                      isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900' : 'bg-zinc-950 border border-zinc-800 text-white'
+                    }`}
                   >
-                    <option value="500">+500 PTS (Basic)</option>
-                    <option value="1000">+1,000 PTS (Standard)</option>
-                    <option value="2500">+2,500 PTS (Pro)</option>
-                    <option value="5000">+5,000 PTS (Enterprise)</option>
+                    <option value={500}>500 PTS ($50.00)</option>
+                    <option value={1000}>1,000 PTS ($100.00)</option>
+                    <option value={2500}>2,500 PTS ($250.00)</option>
+                    <option value={5000}>5,000 PTS ($500.00)</option>
+                    <option value={10000}>10,000 PTS ($1,000.00)</option>
                   </select>
 
                   <button
                     type="submit"
                     disabled={saving}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md transition cursor-pointer"
+                    className={`w-full py-3.5 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
+                      isBrand ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30' : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-red-600/40'
+                    }`}
                   >
-                    {saving ? 'Processing...' : `Add +${topUpAmount} Points`}
+                    <Award className="w-4 h-4" />
+                    <span>{saving ? 'Processing...' : 'Instant Points Top-Up'}</span>
                   </button>
                 </form>
               </div>
-            )}
-
-            {/* CREATOR DELIVERABLES PORTFOLIO DIRECT LINK */}
-            {!isBrand && (
-              <div className="bg-zinc-900 border border-red-500/30 rounded-3xl p-6 shadow-xl space-y-4 text-white animate-pulse-red-glow">
-                <h3 className="text-lg font-black text-white">Deliverables Portfolio</h3>
-                <p className="text-xs sm:text-sm text-zinc-300 font-medium">
-                  Showcase your past video submissions and brand 5-star ratings to potential sponsors.
-                </p>
-
-                <button
-                  onClick={() => navigate('/portfolio')}
-                  className="w-full bg-red-600 hover:bg-red-500 text-white font-black py-3 rounded-2xl text-xs sm:text-sm shadow-md transition cursor-pointer flex items-center justify-center space-x-2"
-                >
-                  <Award className="w-4 h-4" />
-                  <span>View Public Portfolio</span>
-                </button>
-              </div>
-            )}
-
-          </div>
+            </div>
+          )}
 
         </div>
-
       </div>
     </div>
   );

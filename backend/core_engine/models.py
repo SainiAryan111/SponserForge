@@ -44,7 +44,7 @@ class CreatorProfile(models.Model):
     avatar_url = models.URLField(blank=True, null=True)
     location = models.CharField(max_length=100, blank=True, null=True)
     points_balance = models.PositiveIntegerField(default=0)
-    rating = models.FloatField(default=5.0, help_text="Average brand rating (1.0 to 5.0)")
+    rating = models.FloatField(default=0.0, help_text="Average brand rating (0.0 to 5.0)")
     total_ratings_count = models.PositiveIntegerField(default=0, help_text="Total number of brand ratings received")
     social_links = models.JSONField(default=dict, blank=True, null=True, help_text="Social media profiles dict e.g. {'twitter': '...', 'instagram': '...'}")
     created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
@@ -136,11 +136,15 @@ class Campaign(models.Model):
                 self.status = 'active'
                 self.save(update_fields=['status'])
 
-        # 2. Active -> Completed transition when campaign duration expires
+        # 2. Active -> Completed / Cancelled transition when campaign duration expires
         if self.status == 'active' and self.start_datetime and self.duration_hours:
             end_time = self.start_datetime + timedelta(hours=self.duration_hours)
             if now >= end_time:
-                self.status = 'completed'
+                accepted_count = self.applications.filter(status__in=['accepted', 'submitted', 'completed']).count()
+                if accepted_count == 0:
+                    self.status = 'cancelled'
+                else:
+                    self.status = 'completed'
                 self.save(update_fields=['status'])
                 self.applications.filter(status__in=['pending', 'offered']).update(status='rejected')
 
@@ -166,6 +170,7 @@ class CampaignApplication(models.Model):
         ('offered', 'Offered by Brand'),
         ('accepted', 'Accepted / Hired'),
         ('rejected', 'Rejected'),
+        ('expired', 'Expired (Deadline Missed)'),
         ('submitted', 'Work Submitted'),
         ('completed', 'Completed & Paid'),
     )
@@ -178,6 +183,8 @@ class CampaignApplication(models.Model):
     submission_link = models.URLField(blank=True, null=True, help_text="Link to deliverable/content")
     rating = models.PositiveIntegerField(blank=True, null=True, help_text="Rating given by Brand upon completion (1 to 5 stars)")
     feedback = models.TextField(blank=True, null=True, help_text="Feedback/review written by Brand upon completion")
+    rejection_reason = models.TextField(blank=True, null=True, help_text="Reason provided by Brand when rejecting submitted work")
+    submitted_at = models.DateTimeField(blank=True, null=True, help_text="Timestamp when work deliverable was submitted by creator")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     applied_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -188,12 +195,95 @@ class CampaignApplication(models.Model):
     def check_and_update_deadline_status(self):
         """
         If submission deadline has passed and creator hasn't submitted work yet,
-        automatically mark application as rejected.
+        automatically mark application as expired.
         """
         if self.status in ['accepted', 'offered'] and self.submission_deadline:
             if timezone.now() > self.submission_deadline:
-                self.status = 'rejected'
+                self.status = 'expired'
                 self.save(update_fields=['status'])
+
+                # Dispatch Nodemailer notifications on expiration
+                try:
+                    from .mailer import send_creator_expiration_notification, send_brand_expiration_notification
+                    brand_name = getattr(getattr(self.campaign.brand_user, 'brand_profile', None), 'company_name', None) or self.campaign.brand_user.username
+                    send_creator_expiration_notification(
+                        self.creator.user.email,
+                        self.creator.user.username,
+                        self.campaign.title
+                    )
+                    send_brand_expiration_notification(
+                        self.campaign.brand_user.email,
+                        brand_name,
+                        self.campaign.title,
+                        self.creator.user.username
+                    )
+                except Exception as err:
+                    pass
+
+                return True
+        return False
+
+    def check_and_auto_payout_review_timeout(self):
+        """
+        If brand does not review submitted work within 24 hours,
+        points are automatically credited to the creator profile without review.
+        """
+        if self.status == 'submitted':
+            ref_time = self.submitted_at or self.updated_at
+            if ref_time and timezone.now() >= ref_time + timedelta(hours=24):
+                from django.db import transaction
+                from .models import PointsTransaction
+                
+                campaign = self.campaign
+                creator = self.creator
+                brand_user = campaign.brand_user
+                brand_profile = getattr(brand_user, 'brand_profile', None)
+                points = campaign.points_reward
+
+                with transaction.atomic():
+                    if brand_profile:
+                        if brand_profile.points_balance >= points:
+                            brand_profile.points_balance -= points
+                            brand_profile.save()
+                    
+                    creator.points_balance += points
+                    creator.save()
+
+                    self.status = 'completed'
+                    self.save(update_fields=['status'])
+
+                    PointsTransaction.objects.create(
+                        brand=brand_profile,
+                        creator=creator,
+                        campaign=campaign,
+                        amount=points,
+                        transaction_type='campaign_payout'
+                    )
+
+                # Dispatch Nodemailer notifications on auto-payout completion
+                try:
+                    from .mailer import send_creator_reward_and_review_notification, send_brand_completion_notification
+                    brand_name = brand_profile.company_name if (brand_profile and brand_profile.company_name) else brand_user.username
+                    send_creator_reward_and_review_notification(
+                        creator.user.email,
+                        creator.user.username,
+                        campaign.title,
+                        brand_name,
+                        points,
+                        5,
+                        "Auto-approved after 24-hour review window."
+                    )
+                    send_brand_completion_notification(
+                        brand_user.email,
+                        brand_name,
+                        campaign.title,
+                        creator.user.username,
+                        points
+                    )
+                except Exception as err:
+                    pass
+
+                campaign.check_and_update_status()
                 return True
         return False
 

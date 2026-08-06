@@ -148,7 +148,7 @@ export default function CampaignMatchModal({ campaign, onClose }) {
                         <div className="flex items-center space-x-4 text-xs font-bold text-slate-700 pt-1 flex-wrap">
                           <span className="flex items-center space-x-1 text-amber-500 font-black">
                             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                            <span>{creator.rating ? Number(creator.rating).toFixed(1) : '5.0'} ({creator.total_ratings_count || 0})</span>
+                            <span>{creator.total_ratings_count > 0 ? Number(creator.rating || 0).toFixed(1) : '0.0'} ({creator.total_ratings_count || 0})</span>
                           </span>
                           <span className="flex items-center space-x-1">
                             <Users className="w-3.5 h-3.5 text-slate-500" />
