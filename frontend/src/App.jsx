@@ -1,5 +1,5 @@
-import React, { useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import React, { useContext, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, AuthContext } from './context/AuthContext.jsx';
 import WelcomePage from './pages/WelcomePage.jsx';
 import Login from './pages/Login.jsx';
@@ -17,6 +17,17 @@ import Footer from './components/Footer.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Navbar from './components/Navbar.jsx';
 import './App.css';
+
+// Scroll To Top Component on Route Change (including Back/Forward navigation)
+const ScrollToTop = () => {
+  const { pathname, search, key } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname, search, key]);
+
+  return null;
+};
 
 // Role-Aware Protected Route Guard for Authenticated Users
 const ProtectedRoute = ({ children, allowedRole }) => {
@@ -92,6 +103,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
+        <ScrollToTop />
         <Routes>
           {/* Main Layout Wrap with Global Footer */}
           <Route element={<MainLayout />}>

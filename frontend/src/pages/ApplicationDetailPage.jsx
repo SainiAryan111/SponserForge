@@ -45,6 +45,7 @@ export default function ApplicationDetailPage() {
   };
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchDetail();
   }, [id]);
 

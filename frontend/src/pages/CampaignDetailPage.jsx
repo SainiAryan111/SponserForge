@@ -69,6 +69,7 @@ export default function CampaignDetailPage() {
   };
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchData();
   }, [id]);
 

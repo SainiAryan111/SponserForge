@@ -3,7 +3,7 @@ import api, { offerCampaign } from '../services/api';
 import { X, Sparkles, Video, Camera, Users, Award, Send, Check, Star } from 'lucide-react';
 import CampaignCountdown from './CampaignCountdown';
 
-export default function CampaignMatchModal({ campaign, onClose }) {
+export default function CampaignMatchModal({ campaign, onClose, onUpdate }) {
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -53,6 +53,7 @@ export default function CampaignMatchModal({ campaign, onClose }) {
       });
       setOfferedState((prev) => ({ ...prev, [creatorId]: 'sent' }));
       setTargetCreator(null);
+      if (onUpdate) onUpdate();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to send campaign offer.');
       setOfferedState((prev) => ({ ...prev, [creatorId]: 'error' }));

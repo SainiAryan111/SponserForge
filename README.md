@@ -148,7 +148,19 @@ Make sure you have the following installed on your system:
    \c sponserforge_db;
    CREATE EXTENSION IF NOT EXISTS vector;
    ```
-3. Update database credentials in `backend/core/settings.py` if necessary:
+3. **Restore Included Project Database**:
+   You can populate the database using either the included SQL dump or Django fixture:
+   - **Option A (Native PostgreSQL Restore)**:
+     ```bash
+     psql -U postgres -d sponserforge_db -f backend/sponserforge_db_backup.sql
+     ```
+   - **Option B (Django Loaddata)**:
+     ```bash
+     cd backend
+     python manage.py loaddata database_data.json
+     ```
+
+4. Update database credentials in `backend/core/settings.py` if necessary:
    ```python
    DATABASES = {
        'default': {

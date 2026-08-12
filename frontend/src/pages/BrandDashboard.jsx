@@ -39,6 +39,7 @@ export default function BrandDashboard() {
   };
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchData();
   }, []);
 
@@ -60,11 +61,29 @@ export default function BrandDashboard() {
     }
   };
 
-  const filteredApplications = applications.filter((app) => {
-    const isExpired = app.status === 'expired' ||
+  const checkAppExpired = (app) => {
+    return app.status === 'expired' ||
       (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+      (app.status === 'offered' && app.submission_deadline && new Date(app.submission_deadline) < new Date()) ||
       (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
+  };
 
+  const getTabCount = (tabKey) => {
+    return applications.filter((app) => {
+      const isExpired = checkAppExpired(app);
+      if (tabKey === 'pending') return app.status === 'pending';
+      if (tabKey === 'offered') return app.status === 'offered' && !isExpired;
+      if (tabKey === 'accepted') return app.status === 'accepted' && !isExpired;
+      if (tabKey === 'submitted') return app.status === 'submitted';
+      if (tabKey === 'completed') return app.status === 'completed';
+      if (tabKey === 'rejected') return app.status === 'rejected';
+      if (tabKey === 'expired') return isExpired;
+      return true;
+    }).length;
+  };
+
+  const filteredApplications = applications.filter((app) => {
+    const isExpired = checkAppExpired(app);
     if (activeTab === 'pending') return app.status === 'pending';
     if (activeTab === 'offered') return app.status === 'offered' && !isExpired;
     if (activeTab === 'accepted') return app.status === 'accepted' && !isExpired;
@@ -279,18 +298,26 @@ export default function BrandDashboard() {
             { key: 'completed', label: 'Completed' },
             { key: 'rejected', label: 'Rejected' },
             { key: 'expired', label: 'Expired' }
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${activeTab === tab.key
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ].map((tab) => {
+            const count = getTabCount(tab.key);
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center space-x-1.5 ${activeTab === tab.key
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                  }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === tab.key ? 'bg-blue-800 text-blue-100' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="space-y-4">
@@ -316,6 +343,7 @@ export default function BrandDashboard() {
         <CampaignMatchModal
           campaign={selectedMatchCampaign}
           onClose={() => setSelectedMatchCampaign(null)}
+          onUpdate={fetchData}
         />
       )}
 

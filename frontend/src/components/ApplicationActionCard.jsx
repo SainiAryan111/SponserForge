@@ -161,6 +161,7 @@ export default function ApplicationActionCard({ application, userRole, onUpdate,
 
   const isExpired = application.status === 'expired' ||
     (application.status === 'accepted' && application.submission_deadline && new Date(application.submission_deadline) < new Date() && (!application.submission_link || !application.submission_link.trim())) ||
+    (application.status === 'offered' && application.submission_deadline && new Date(application.submission_deadline) < new Date()) ||
     (application.status === 'rejected' && (!application.submission_link || !application.submission_link.trim()) && (application.work_description || application.submission_deadline));
 
   const getStatusExplanationText = (app) => {

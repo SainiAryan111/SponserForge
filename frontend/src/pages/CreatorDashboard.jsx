@@ -24,6 +24,7 @@ export default function CreatorDashboard() {
   const filteredApplications = myApplications.filter((app) => {
     const isExpired = app.status === 'expired' ||
       (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+      (app.status === 'offered' && app.submission_deadline && new Date(app.submission_deadline) < new Date()) ||
       (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
 
     if (activeTab === 'active') return app.status !== 'completed' && app.status !== 'rejected' && !isExpired;
@@ -58,6 +59,7 @@ export default function CreatorDashboard() {
   };
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchData();
   }, []);
 

@@ -378,7 +378,9 @@ export default function ProfilePage() {
             </h1>
             <p className={`text-xs sm:text-sm font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-300'}`}>
               {isOwnProfile
-                ? 'Manage credentials, platform settings, company specs, & points balance.'
+                ? isBrand
+                  ? 'Manage credentials, platform settings, company specs, & points balance.'
+                  : 'Manage credentials, platform settings, & channel specs.'
                 : `Public view profile card for @${profileData.username}.`}
             </p>
           </div>
@@ -418,10 +420,10 @@ export default function ProfilePage() {
         )}
 
         {/* MAIN CONTAINER (VIEW MODE vs EDIT MODE) */}
-        <div className={`grid grid-cols-1 ${isOwnProfile ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
+        <div className={`grid grid-cols-1 ${isOwnProfile && isBrand ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
           
           {/* LEFT COLS: VIEW MODE OR EDIT FORM */}
-          <div className={isOwnProfile ? 'lg:col-span-2' : 'col-span-full'}>
+          <div className={isOwnProfile && isBrand ? 'lg:col-span-2' : 'col-span-full'}>
             {!isEditing ? (
               /* ==========================================
                  1. VIEW MODE (READS FROM COMMITTED profileData ONLY)
@@ -924,8 +926,8 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* RIGHT COL: POINTS WALLET & TOP UP (OWN PROFILE ONLY) */}
-          {isOwnProfile && (
+          {/* RIGHT COL: POINTS WALLET & TOP UP (BRAND OWN PROFILE ONLY) */}
+          {isOwnProfile && isBrand && (
             <div className="space-y-6">
               <div className={`rounded-3xl p-6 border shadow-xl space-y-4 ${
                 isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
