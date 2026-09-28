@@ -113,7 +113,7 @@ export default function Navbar() {
                 ) : (
                   <User className={`w-4 h-4 ${isBrand ? 'text-blue-600' : 'text-red-400'}`} />
                 )}
-                <span className="text-xs sm:text-sm font-black hidden md:inline">{user.username}</span>
+                <span className="text-xs sm:text-sm font-black hidden md:inline">{isCreator ? (user.name || user.username) : (isBrand ? (user.company_name || user.username) : user.username)}</span>
                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md border ${
                   isBrand ? 'bg-blue-100 text-blue-900 border-blue-300' : 'bg-red-950 text-red-200 border-red-500/40'
                 }`}>

@@ -129,6 +129,7 @@ class Campaign(models.Model):
 
     def check_and_update_status(self):
         now = timezone.now()
+        original_status = self.status
 
         # 1. Scheduled -> Active transition when launch starting time arrives
         if self.status == 'scheduled' and self.start_datetime:
@@ -156,7 +157,20 @@ class Campaign(models.Model):
                 self.save(update_fields=['status'])
             # Automatically mark remaining pending/offered applications as rejected
             self.applications.filter(status__in=['pending', 'offered']).update(status='rejected')
-            return True
+            
+        if original_status == 'active' and self.status in ['completed', 'cancelled']:
+            try:
+                from .mailer import send_brand_campaign_ended_notification
+                brand_name = getattr(getattr(self.brand_user, 'brand_profile', None), 'company_name', None) or self.brand_user.username
+                send_brand_campaign_ended_notification(
+                    self.brand_user.email,
+                    brand_name,
+                    self.title,
+                    self.status
+                )
+            except Exception:
+                pass
+            return True if self.status == 'completed' else False
 
         return self.status == 'completed'
 

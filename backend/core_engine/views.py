@@ -480,7 +480,7 @@ class CampaignCreateView(generics.ListCreateAPIView):
                 campaign_title=campaign.title,
                 points_reward=campaign.points_reward,
                 target_niche=campaign.target_niche,
-                total_creators_needed=campaign.total_creators_needed
+                total_creators_needed=campaign.creators_needed
             )
         except Exception:
             pass
@@ -924,7 +924,7 @@ class CampaignViewSet(viewsets.ModelViewSet):
                 campaign_title=campaign.title,
                 points_reward=campaign.points_reward,
                 target_niche=campaign.target_niche,
-                total_creators_needed=campaign.total_creators_needed
+                total_creators_needed=campaign.creators_needed
             )
         except Exception:
             pass

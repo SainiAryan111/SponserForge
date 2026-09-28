@@ -262,6 +262,30 @@ def send_brand_completion_notification(brand_email, brand_name, campaign_title, 
     send_email_async(brand_email, subject, text, html_body)
 
 
+# 2F. On Overall Campaign End (Completed or Cancelled)
+def send_brand_campaign_ended_notification(brand_email, brand_name, campaign_title, status):
+    status_str = "COMPLETED" if status == 'completed' else "CANCELLED"
+    accent = "#16a34a" if status == 'completed' else "#71717a"
+    
+    subject = f"Campaign {status_str}: '{campaign_title}'"
+    text = f"Your campaign '{campaign_title}' has officially ended with status: {status_str}."
+    
+    html_body = get_base_html(
+        title=f"Campaign {status_str}",
+        subtitle="Campaign Lifecycle Event",
+        accent_color=accent,
+        body_content=f"""
+          <h2 style="color: #ffffff; font-size: 18px; font-weight: 800; margin-top: 0;">Hello {brand_name},</h2>
+          <p>Your sponsorship campaign <strong>"{campaign_title}"</strong> has officially ended.</p>
+          <div class="card">
+            <p style="margin: 0;"><strong>Final Status:</strong> <span class="badge" style="background-color: {accent};">{status_str}</span></p>
+          </div>
+          <p>Thank you for using SponsorForge to manage your creator sponsorships!</p>
+        """
+    )
+    send_email_async(brand_email, subject, text, html_body)
+
+
 # ------------------------------------------------------------------------------
 # 3. CREATOR NOTIFICATIONS
 # ------------------------------------------------------------------------------

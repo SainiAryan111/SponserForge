@@ -113,7 +113,7 @@ export default function CreatorDashboard() {
                 onError={(e) => { e.target.style.display = 'none'; }}
               />
             ) : null}
-            <span>Welcome back, @{profile?.username}</span>
+            <span>Welcome back, {profile?.name || `@${profile?.username}`}</span>
           </h1>
 
           <p className="text-zinc-400 text-sm max-w-xl font-medium">
@@ -251,19 +251,43 @@ export default function CreatorDashboard() {
             { key: 'completed', label: 'Completed' },
             { key: 'rejected', label: 'Rejected' },
             { key: 'expired', label: 'Expired' }
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer ${
-                activeTab === tab.key
-                  ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
-                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ].map((tab) => {
+            const count = myApplications.filter((app) => {
+              const isExpired = app.status === 'expired' ||
+                (app.status === 'accepted' && app.submission_deadline && new Date(app.submission_deadline) < new Date() && (!app.submission_link || !app.submission_link.trim())) ||
+                (app.status === 'offered' && app.submission_deadline && new Date(app.submission_deadline) < new Date()) ||
+                (app.status === 'rejected' && (!app.submission_link || !app.submission_link.trim()) && (app.work_description || app.submission_deadline));
+          
+              if (tab.key === 'active') return app.status !== 'completed' && app.status !== 'rejected' && !isExpired;
+              if (tab.key === 'pending') return app.status === 'pending';
+              if (tab.key === 'offered') return app.status === 'offered' && !isExpired;
+              if (tab.key === 'accepted') return app.status === 'accepted' && !isExpired;
+              if (tab.key === 'submitted') return app.status === 'submitted';
+              if (tab.key === 'completed') return app.status === 'completed';
+              if (tab.key === 'rejected') return app.status === 'rejected';
+              if (tab.key === 'expired') return isExpired;
+              return true;
+            }).length;
+
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition cursor-pointer flex items-center space-x-1.5 ${
+                  activeTab === tab.key
+                    ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === tab.key ? 'bg-red-800 text-red-100' : 'bg-zinc-800 text-zinc-300'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         <div className="space-y-4">

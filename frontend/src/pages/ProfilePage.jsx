@@ -74,6 +74,7 @@ export default function ProfilePage() {
   const [customPlatform, setCustomPlatform] = useState('');
 
   const [topUpAmount, setTopUpAmount] = useState(1000);
+  const [cashOutAmount, setCashOutAmount] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -317,6 +318,40 @@ export default function ProfilePage() {
     }
   };
 
+  const handleCashOutPoints = async (e) => {
+    e.preventDefault();
+    if (!isOwnProfile) return;
+    
+    const amountToCashOut = parseInt(cashOutAmount, 10);
+    if (!amountToCashOut || amountToCashOut <= 0 || amountToCashOut > profileData.points_balance) {
+      setMessage({ type: 'error', text: 'Invalid cash-out amount. Must be within balance.' });
+      return;
+    }
+
+    setSaving(true);
+    setMessage({ type: '', text: '' });
+
+    const newBalance = (profileData.points_balance || 0) - amountToCashOut;
+    const updatedPayload = { ...profileData, points_balance: newBalance };
+
+    try {
+      const res = await updateUserProfile(updatedPayload);
+      const updated = { ...profileData, points_balance: res.data.points_balance };
+      setProfileData(updated);
+      setUser(updated);
+      localStorage.setItem('user_data', JSON.stringify(updated));
+      setMessage({
+        type: 'success',
+        text: `Successfully cashed out ${amountToCashOut} PTS!`,
+      });
+      setCashOutAmount('');
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to process cash out.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const isBrand = isOwnProfile ? user?.role === 'brand' : profileData.role === 'brand';
 
   if (loading) {
@@ -420,10 +455,10 @@ export default function ProfilePage() {
         )}
 
         {/* MAIN CONTAINER (VIEW MODE vs EDIT MODE) */}
-        <div className={`grid grid-cols-1 ${isOwnProfile && isBrand ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
+        <div className={`grid grid-cols-1 ${isOwnProfile ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-6`}>
           
           {/* LEFT COLS: VIEW MODE OR EDIT FORM */}
-          <div className={isOwnProfile && isBrand ? 'lg:col-span-2' : 'col-span-full'}>
+          <div className={isOwnProfile ? 'lg:col-span-2' : 'col-span-full'}>
             {!isEditing ? (
               /* ==========================================
                  1. VIEW MODE (READS FROM COMMITTED profileData ONLY)
@@ -926,50 +961,72 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* RIGHT COL: POINTS WALLET & TOP UP (BRAND OWN PROFILE ONLY) */}
-          {isOwnProfile && isBrand && (
+          {/* RIGHT COL: POINTS WALLET & TRANSACTIONS (OWN PROFILE ONLY) */}
+          {isOwnProfile && (
             <div className="space-y-6">
               <div className={`rounded-3xl p-6 border shadow-xl space-y-4 ${
                 isBrand ? 'bg-white border-blue-200' : 'bg-zinc-900 border-zinc-800'
               }`}>
                 <div className="flex items-center space-x-2 text-amber-500">
                   <Sparkles className="w-5 h-5" />
-                  <h3 className="text-base font-black">Escrow Points Wallet</h3>
+                  <h3 className="text-base font-black">{isBrand ? 'Escrow Points Wallet' : 'Earnings Wallet'}</h3>
                 </div>
 
                 <p className={`text-xs font-semibold ${isBrand ? 'text-slate-600' : 'text-zinc-400'}`}>
-                  Points are held safely in Escrow during active campaigns and released to creators upon deliverable verification.
+                  {isBrand 
+                    ? 'Points are held safely in Escrow during active campaigns and released to creators upon deliverable verification.'
+                    : 'Withdraw your earned points for real currency.'}
                 </p>
 
-                <form onSubmit={handleTopUpPoints} className="space-y-3 pt-2">
-                  <label className={`block text-xs font-black uppercase tracking-wider ${
-                    isBrand ? 'text-slate-800' : 'text-zinc-200'
-                  }`}>Top-Up Amount (PTS)</label>
-                  <select
-                    value={topUpAmount}
-                    onChange={(e) => setTopUpAmount(e.target.value)}
-                    className={`w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold cursor-pointer ${
-                      isBrand ? 'bg-slate-50 border border-slate-300 text-slate-900' : 'bg-zinc-950 border border-zinc-800 text-white'
-                    }`}
-                  >
-                    <option value={500}>500 PTS ($50.00)</option>
-                    <option value={1000}>1,000 PTS ($100.00)</option>
-                    <option value={2500}>2,500 PTS ($250.00)</option>
-                    <option value={5000}>5,000 PTS ($500.00)</option>
-                    <option value={10000}>10,000 PTS ($1,000.00)</option>
-                  </select>
+                {isBrand ? (
+                  <form onSubmit={handleTopUpPoints} className="space-y-3 pt-2">
+                    <label className="block text-xs font-black uppercase tracking-wider text-slate-800">
+                      Top-Up Amount (PTS)
+                    </label>
+                    <select
+                      value={topUpAmount}
+                      onChange={(e) => setTopUpAmount(e.target.value)}
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold cursor-pointer bg-slate-50 border border-slate-300 text-slate-900"
+                    >
+                      <option value={500}>500 PTS ($50.00)</option>
+                      <option value={1000}>1,000 PTS ($100.00)</option>
+                      <option value={2500}>2,500 PTS ($250.00)</option>
+                      <option value={5000}>5,000 PTS ($500.00)</option>
+                      <option value={10000}>10,000 PTS ($1,000.00)</option>
+                    </select>
 
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className={`w-full py-3.5 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer ${
-                      isBrand ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30' : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-red-600/40'
-                    }`}
-                  >
-                    <Award className="w-4 h-4" />
-                    <span>{saving ? 'Processing...' : 'Instant Points Top-Up'}</span>
-                  </button>
-                </form>
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30"
+                    >
+                      <Award className="w-4 h-4" />
+                      <span>{saving ? 'Processing...' : 'Instant Points Top-Up'}</span>
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleCashOutPoints} className="space-y-3 pt-2">
+                    <label className="block text-xs font-black uppercase tracking-wider text-zinc-200">
+                      Cash Out Amount (PTS)
+                    </label>
+                    <input
+                      type="number"
+                      value={cashOutAmount}
+                      onChange={(e) => setCashOutAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full rounded-2xl px-4 py-3 text-xs sm:text-sm font-extrabold bg-zinc-950 border border-zinc-800 text-white focus:ring-2 focus:ring-red-500"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-black transition shadow-lg flex items-center justify-center space-x-2 cursor-pointer bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-red-600/40"
+                    >
+                      <Award className="w-4 h-4" />
+                      <span>{saving ? 'Processing...' : 'Cash Out Points'}</span>
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           )}
